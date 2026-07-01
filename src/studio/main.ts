@@ -9,10 +9,9 @@
  * hue torsion, edited in a collapsible curves panel. Step count is palette-wide.
  *
  * Rendering: controls are built ONCE and persist; slider input mutates state
- * and calls a lightweight refresh() that recomputes derived views (swatches,
- * contract badge, grid) into existing nodes, so the slider you are dragging is
- * never recreated. Structural changes (add/remove family, change step count) do
- * a full remount.
+ * and calls a lightweight refresh() that recomputes derived views into existing
+ * nodes, so the slider you are dragging is never recreated. Structural changes
+ * (add/remove family, change step count) do a full remount.
  */
 import './studio.css';
 import { seedFamily, resolveFamily, type FamilySpec, type Family } from '../family.js';
@@ -27,20 +26,15 @@ type Mode = 'seed' | 'free';
 interface FamilyState {
   name: string;
   mode: Mode;
-  // free-hue mode
   hue: number;
-  // from-color mode
-  seed: string; // hex
-  seedStep: number; // index into the current scale
-  chromaAuto: boolean; // seed drives chroma
-  // chroma peak + shape
+  seed: string;
+  seedStep: number;
+  chromaAuto: boolean;
   chroma: number;
   tPeak: number;
   chromaLight: number;
   chromaDark: number;
-  // hue torsion (degrees across the ramp)
   hueTorsion: number;
-  // per-family lightness ramp
   lightMax: number;
   lightMin: number;
   gamma: number;
@@ -67,14 +61,15 @@ function mkFamily(over: Partial<FamilyState>): FamilyState {
 
 let steps = 12; // palette-wide step count
 let openGrid = -1; // index of the family whose contrast grid is expanded (-1 = none)
+let exportFmt: 'hex' | 'oklch' = 'hex';
 
 const families: FamilyState[] = [
-  mkFamily({ name: 'blue', seed: '#1d4ed8', seedStep: 8 }),
-  mkFamily({ name: 'green', seed: '#059669', seedStep: 7 }),
-  mkFamily({ name: 'amber', seed: '#d97706', seedStep: 7 }),
-  mkFamily({ name: 'red', seed: '#e11d48', seedStep: 6 }),
-  mkFamily({ name: 'violet', seed: '#7c3aed', seedStep: 6 }),
-  mkFamily({ name: 'gray', seed: '#6b7280', seedStep: 6 }),
+  mkFamily({ name: 'signal blue', seed: '#1d4ed8', seedStep: 8 }),
+  mkFamily({ name: 'clay', seed: '#ac543f', seedStep: 6 }),
+  mkFamily({ name: 'plum', seed: '#512c59', seedStep: 8 }),
+  mkFamily({ name: 'sage', seed: '#4a7c59', seedStep: 7 }),
+  mkFamily({ name: 'ember amber', seed: '#c26300', seedStep: 6 }),
+  mkFamily({ name: 'slate', seed: '#5b6270', seedStep: 6, chroma: 0.02 }),
 ];
 
 // ---- bridge studio state -> library FamilySpec ----
@@ -108,7 +103,8 @@ function el(tag: string, attrs: Attrs = {}, kids: (Node | string | null)[] = [])
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === 'class') e.className = String(v);
-    else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2), v as EventListener);
+    else if (k.startsWith('on') && typeof v === 'function')
+      e.addEventListener(k.slice(2), v as EventListener);
     else if (v === true) e.setAttribute(k, '');
     else if (v !== false) e.setAttribute(k, String(v));
   }
@@ -116,7 +112,7 @@ function el(tag: string, attrs: Attrs = {}, kids: (Node | string | null)[] = [])
   return e;
 }
 
-/** A persistent slider whose input never triggers its own recreation. */
+/** A persistent stacked slider (label above, value at right). */
 function slider(
   cls: string, label: string, val: number, min: number, max: number, step: number,
   fmt: (v: number) => string, on: (v: number) => void,
@@ -127,6 +123,20 @@ function slider(
     oninput: (e) => { const v = +(e.target as HTMLInputElement).value; out.textContent = fmt(v); on(v); },
   }) as HTMLInputElement;
   const root = el('div', { class: cls }, [el('label', {}, [label, out]), input]);
+  return { root, input };
+}
+
+/** A persistent inline slider (label · slider · value on one row). */
+function inlineSlider(
+  label: string, val: number, min: number, max: number, step: number,
+  fmt: (v: number) => string, on: (v: number) => void,
+): { root: HTMLElement; input: HTMLInputElement } {
+  const out = el('b', {}, [fmt(val)]);
+  const input = el('input', {
+    type: 'range', min, max, step, value: val,
+    oninput: (e) => { const v = +(e.target as HTMLInputElement).value; out.textContent = fmt(v); on(v); },
+  }) as HTMLInputElement;
+  const root = el('div', { class: 'chroma-inline' }, [el('label', {}, [label]), input, out]);
   return { root, input };
 }
 
@@ -141,26 +151,42 @@ let cards: Card[] = [];
 function mount(): void {
   app.innerHTML = '';
 
-  // global controls
-  const stepCtrl = slider('ctrl', 'steps', steps, 5, 16, 1, (v) => String(v), (v) => {
-    steps = v;
-    for (const f of families) f.seedStep = Math.min(f.seedStep, steps - 1);
-    remountFamilies();
+  // global STEPS card
+  const stepsVal = el('span', { class: 'steps-val' }, [String(steps)]);
+  const stepsInput = el('input', {
+    type: 'range', min: 5, max: 16, step: 1, value: steps,
+    oninput: (e) => {
+      steps = +(e.target as HTMLInputElement).value;
+      stepsVal.textContent = String(steps);
+      for (const f of families) f.seedStep = Math.min(f.seedStep, steps - 1);
+      remountFamilies();
+    },
   });
-  app.append(el('div', { class: 'globals' }, [stepCtrl.root]));
+  app.append(
+    el('div', { class: 'globals' }, [
+      el('div', { class: 'steps-row' }, [el('span', { class: 'steps-lab' }, ['steps']), stepsVal]),
+      stepsInput,
+    ]),
+  );
 
-  app.append(el('div', { class: 'summary' }, [
-    summaryEl,
-    el('span', { class: 'legend' }, ['contract = darkest steps readable (WCAG AA ≥ 4.5) on the lightest']),
-  ]));
+  app.append(
+    el('div', { class: 'summary' }, [
+      summaryEl,
+      el('span', { class: 'legend' }, [
+        'contract = darkest steps readable (WCAG AA ≥ 4.5) on the lightest — locks are never overridden to force a pass',
+      ]),
+    ]),
+  );
 
   app.append(famHost);
 
-  app.append(el('div', { class: 'row' }, [
-    el('button', { class: 'btn add', onclick: addFamily }, ['+ add family']),
-    el('button', { class: 'btn', onclick: showTokens }, ['export W3C tokens']),
-    el('span', { class: 'legend' }, ['click any swatch to toggle its contrast grid']),
-  ]));
+  app.append(
+    el('div', { class: 'row' }, [
+      el('button', { class: 'btn add', onclick: addFamily }, ['+ add family']),
+      el('button', { class: 'btn accent', onclick: showTokens }, ['export W3C tokens']),
+      el('span', { class: 'legend' }, ['click any swatch strip to toggle its contrast grid']),
+    ]),
+  );
   app.append(outEl);
 
   remountFamilies();
@@ -176,6 +202,7 @@ function remountFamilies(): void {
 function refreshAll(): void {
   cards.forEach((c) => c.refresh());
   updateSummary();
+  if (outEl.firstChild) renderExport();
 }
 
 function updateSummary(): void {
@@ -194,25 +221,25 @@ function buildCard(fi: number): Card {
   const badge = el('span', { class: 'status' });
   const gridHost = el('div', { class: 'grid-host' });
 
-  // A single-family change can flip its own pass state, so keep the summary live.
-  const refreshSelf = () => { refresh(); updateSummary(); };
+  const refreshSelf = () => { refresh(); updateSummary(); if (outEl.firstChild) renderExport(); };
 
   const nameInput = el('input', {
     type: 'text', value: fam.name, 'aria-label': 'family name',
-    oninput: (e) => { fam.name = (e.target as HTMLInputElement).value; },
+    oninput: (e) => { fam.name = (e.target as HTMLInputElement).value; if (outEl.firstChild) renderExport(); },
   });
 
-  // hue source: from-color (seed) or free hue
-  const modeSel = el('select', {
-    'aria-label': 'hue source', class: 'mode',
-    onchange: (e) => { fam.mode = (e.target as HTMLSelectElement).value as Mode; sync(); refreshSelf(); },
-  }) as HTMLSelectElement;
-  modeSel.append(
-    el('option', { value: 'seed', selected: fam.mode === 'seed' }, ['from color']),
-    el('option', { value: 'free', selected: fam.mode === 'free' }, ['free hue']),
-  );
+  const curvesBtn = el('button', { class: 'btn icon', 'aria-label': 'toggle curves', title: 'curve controls' }, ['⚙']);
+  const removeBtn = el('button', { class: 'btn icon remove', 'aria-label': 'remove family', title: 'remove family', onclick: () => removeFamily(fi) }, ['✕']);
 
-  // --- from-color controls ---
+  const head = el('div', { class: 'fam-head' }, [
+    nameInput, el('span', { class: 'spacer' }), badge, curvesBtn, removeBtn,
+  ]);
+
+  // ---- row 2: hue-source controls ----
+  const segFromColor = el('button', { onclick: () => setMode('seed') }, ['from color']);
+  const segFreeHue = el('button', { onclick: () => setMode('free') }, ['free hue']);
+  const seg = el('div', { class: 'seg' }, [segFromColor, segFreeHue]);
+
   const seedColor = el('input', {
     type: 'color', 'aria-label': 'base color', value: normalizeHex(fam.seed),
     oninput: (e) => { fam.seed = (e.target as HTMLInputElement).value; refreshSelf(); },
@@ -223,31 +250,22 @@ function buildCard(fi: number): Card {
   }) as HTMLSelectElement;
   scale.names.forEach((n, i) =>
     seedStepSel.append(el('option', { value: i, selected: i === Math.min(fam.seedStep, steps - 1) }, ['pin ' + n])));
-  const seedCtrls = el('div', { class: 'seed-only src' }, [
-    el('label', { class: 'srclab' }, ['color']), seedColor, seedStepSel,
-  ]);
+  const seedCtrls = el('div', { class: 'seed-only src' }, [seedColor, seedStepSel]);
 
-  // --- free-hue controls ---
-  const hue = slider('mini', 'hue', fam.hue, 0, 360, 1, (v) => `${v}°`, (v) => { fam.hue = v; refreshSelf(); });
+  const hue = inlineSlider('hue', fam.hue, 0, 360, 1, (v) => `${v}°`, (v) => { fam.hue = v; refreshSelf(); });
   const freeCtrls = el('div', { class: 'free-only' }, [hue.root]);
 
-  // --- chroma peak (+ auto toggle for seed mode) ---
-  const chroma = slider('mini', 'chroma', fam.chroma, 0, 0.3, 0.005, (v) => v.toFixed(3), (v) => { fam.chroma = v; refreshSelf(); });
+  const chroma = inlineSlider('chroma', fam.chroma, 0, 0.3, 0.005, (v) => v.toFixed(3), (v) => { fam.chroma = v; refreshSelf(); });
+
   const autoChk = el('input', {
-    type: 'checkbox', checked: fam.chromaAuto, 'aria-label': 'auto chroma from color',
+    type: 'checkbox', checked: fam.chromaAuto, 'aria-label': 'auto chroma',
     onchange: (e) => { fam.chromaAuto = (e.target as HTMLInputElement).checked; sync(); refreshSelf(); },
   }) as HTMLInputElement;
-  const autoWrap = el('label', { class: 'seed-only chk', title: 'derive chroma from the base color' }, [autoChk, 'auto']);
+  const autoWrap = el('label', { class: 'seed-only chk', title: 'derive chroma from the base color' }, [autoChk, 'auto chroma']);
 
-  const curvesBtn = el('button', { class: 'btn icon', 'aria-label': 'toggle curves', title: 'curve controls' }, ['⚙']);
+  const controls = el('div', { class: 'fam-controls' }, [seg, seedCtrls, freeCtrls, chroma.root, autoWrap]);
 
-  const top = el('div', { class: 'fam-top' }, [
-    nameInput, modeSel, seedCtrls, freeCtrls, chroma.root, autoWrap, badge,
-    curvesBtn,
-    el('button', { class: 'btn icon remove', 'aria-label': 'remove family', title: 'remove family', onclick: () => removeFamily(fi) }, ['✕']),
-  ]);
-
-  // ---- curves panel (persistent; toggled by class) ----
+  // ---- curves panel ----
   const lMax = slider('mini', 'L max', fam.lightMax, 0.9, 0.995, 0.005, (v) => v.toFixed(3), (v) => { fam.lightMax = v; refreshSelf(); });
   const lMin = slider('mini', 'L min', fam.lightMin, 0.08, 0.35, 0.005, (v) => v.toFixed(3), (v) => { fam.lightMin = v; refreshSelf(); });
   const gam = slider('mini', 'gamma', fam.gamma, 0.6, 1.6, 0.05, (v) => v.toFixed(2), (v) => { fam.gamma = v; refreshSelf(); });
@@ -259,19 +277,28 @@ function buildCard(fi: number): Card {
   const copyBtn = el('button', { class: 'btn', onclick: () => copyCurvesToAll(fi) }, ['copy curves → all']);
 
   const curves = el('div', { class: 'curves' }, [
-    el('div', { class: 'curve-group' }, [el('span', { class: ' glab' }, ['lightness']), lMax.root, lMin.root, gam.root, sc.root]),
-    el('div', { class: 'curve-group' }, [el('span', { class: ' glab' }, ['chroma shape']), tPk.root, cLo.root, cHi.root]),
-    el('div', { class: 'curve-group' }, [el('span', { class: ' glab' }, ['hue']), tors.root]),
+    el('div', { class: 'curve-group' }, [el('span', { class: 'glab' }, ['lightness']), lMax.root, lMin.root, gam.root, sc.root]),
+    el('div', { class: 'curve-group' }, [el('span', { class: 'glab' }, ['chroma shape']), tPk.root, cLo.root, cHi.root]),
+    el('div', { class: 'curve-group' }, [el('span', { class: 'glab' }, ['hue']), tors.root]),
     el('div', { class: 'curve-group' }, [copyBtn]),
   ]);
   curvesBtn.addEventListener('click', () => root.classList.toggle('open-curves'));
 
-  const root = el('div', { class: 'fam' }, [top, curves, strip, gridHost]);
+  const root = el('div', { class: 'fam' }, [head, controls, curves, strip, gridHost]);
   root.dataset.mode = fam.mode;
 
-  /** Enable/disable + show/hide controls that depend on mode / auto-chroma. */
+  function setMode(m: Mode): void {
+    fam.mode = m;
+    segFromColor.className = m === 'seed' ? 'on' : '';
+    segFreeHue.className = m === 'free' ? 'on' : '';
+    sync();
+    refreshSelf();
+  }
+
   function sync(): void {
     root.dataset.mode = fam.mode;
+    segFromColor.className = fam.mode === 'seed' ? 'on' : '';
+    segFreeHue.className = fam.mode === 'free' ? 'on' : '';
     const chromaLocked = fam.mode === 'seed' && fam.chromaAuto;
     chroma.input.disabled = chromaLocked;
     for (const s of [tPk.input, cLo.input, cHi.input]) s.disabled = chromaLocked;
@@ -291,7 +318,10 @@ function buildCard(fi: number): Card {
         style: `background:${s.hex};color:${ink}`,
         title: `${s.name} · ${s.hex} · L ${s.oklch.l.toFixed(2)} C ${s.oklch.c.toFixed(3)} H ${s.oklch.h.toFixed(0)}`,
         onclick: () => { openGrid = openGrid === fi ? -1 : fi; refreshAll(); },
-      }, [el('span', { class: 'n' }, [s.name + (s.locked ? ' ★' : '')]), el('span', { class: 'h' }, [s.hex])]);
+      }, [
+        el('span', { class: 'n' }, [s.name, s.locked ? el('span', { class: 'star' }, [' ★']) : null]),
+        el('span', { class: 'h' }, [s.hex]),
+      ]);
     }));
 
     badge.className = 'status ' + (c.passes ? 'ok' : 'bad');
@@ -308,22 +338,39 @@ function buildCard(fi: number): Card {
 function gridFor(family: Family, region: { light: number[]; dark: number[] }): HTMLElement {
   const m = contrastMatrix(family);
   const sw = family.swatches;
+  const wrap = el('div', { class: 'grid-wrap' });
+  wrap.append(
+    el('div', { class: 'grid-title' }, ['Contrast grid — rows = text, columns = background']),
+    el('div', { class: 'grid-legend' }, [
+      el('span', {}, [el('span', { class: 'dot ok' }), 'passes AA (≥4.5)']),
+      el('span', {}, [el('span', { class: 'dot bad' }), 'fails AA']),
+      el('span', {}, [el('span', { class: 'dot gold' }), 'contract pair (darkest × lightest)']),
+    ]),
+  );
+
   const t = el('table', { class: 'grid' });
-  t.append(el('tr', {}, [el('th', {}, ['fg\\bg']), ...sw.map((s) => el('th', {}, [s.name]))]));
+  t.append(el('tr', {}, [el('th', { class: 'corner' }), ...sw.map((s) => el('th', {}, [s.name]))]));
   sw.forEach((fg, r) => {
     const tr = el('tr', {}, [el('th', {}, [fg.name])]);
     sw.forEach((bg, c) => {
       const v = m[r]![c]!;
+      const pass = v.passesAA;
       const isC = region.dark.includes(r) && region.light.includes(c);
       tr.append(el('td', {
-        class: 'cell' + (isC ? ' contract' : ''),
+        class: 'cell ' + (isC ? 'contract' : pass ? 'pass' : 'fail'),
         style: `background:${bg.hex};color:${fg.hex}`,
-        title: `WCAG ${v.wcag.toFixed(2)} · APCA ${v.apca.toFixed(0)}`,
-      }, [el('span', { class: 's' }, ['Aa']), el('span', { class: 'm' }, [`${v.wcag.toFixed(1)} / ${v.apca.toFixed(0)}`])]));
+        title: `${fg.name} on ${bg.name} · WCAG ${v.wcag.toFixed(2)} · APCA ${v.apca.toFixed(0)}`,
+      }, [
+        el('span', { class: 'aa' }, ['Aa']),
+        el('span', { class: 'badge ' + (pass ? 'ok' : 'bad') }, [pass ? '✓' : '✕']),
+        el('div', { class: 'ratio' }, [`${v.wcag.toFixed(2)}:1`]),
+        el('div', { class: 'lc' }, [`${v.apca >= 0 ? '+' : ''}${v.apca.toFixed(0)} Lc`]),
+      ]));
     });
     t.append(tr);
   });
-  return t;
+  wrap.append(t);
+  return wrap;
 }
 
 // ---- structural actions ----
@@ -349,17 +396,58 @@ function copyCurvesToAll(fi: number): void {
   remountFamilies();
 }
 
+// ---- export panel ----
 let lastTokenUrl: string | null = null;
-function showTokens(): void {
+function tokensJson(): string {
   const palette = { name: 'gosfuig studio', families: families.map((f) => resolveFamily(toSpec(f))) };
-  const json = JSON.stringify(toW3CTokens(palette), null, 2);
-  outEl.innerHTML = '';
+  return JSON.stringify(toW3CTokens(palette, { colorSpace: exportFmt === 'hex' ? 'srgb' : 'oklch' }), null, 2);
+}
+function showTokens(): void {
+  renderExport();
+  outEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function renderExport(): void {
+  const json = tokensJson();
+
+  const segHex = el('button', { onclick: () => { exportFmt = 'hex'; renderExport(); } }, ['hex']);
+  const segOklch = el('button', { onclick: () => { exportFmt = 'oklch'; renderExport(); } }, ['oklch']);
+  (exportFmt === 'hex' ? segHex : segOklch).className = 'on';
+  const fmtSeg = el('div', { class: 'seg' }, [segHex, segOklch]);
+
+  const copyBtn = el('button', { class: 'btn' }, ['copy']);
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard?.writeText(json).then(() => { copyBtn.textContent = 'copied ✓'; setTimeout(() => (copyBtn.textContent = 'copy'), 1200); });
+  });
+
   if (lastTokenUrl) { URL.revokeObjectURL(lastTokenUrl); lastTokenUrl = null; }
+  let downloadBtn: HTMLElement;
   try {
     lastTokenUrl = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-    outEl.append(el('a', { class: 'btn', href: lastTokenUrl, download: 'tokens.json', style: 'display:inline-block;margin-bottom:8px' }, ['⬇ download tokens.json']));
-  } catch { /* download unavailable in sandbox */ }
-  outEl.append(el('pre', {}, [json]));
+    downloadBtn = el('a', { class: 'btn accent', href: lastTokenUrl, download: 'tokens.json' }, ['download ↓']);
+  } catch {
+    downloadBtn = el('span');
+  }
+
+  const pre = el('pre');
+  pre.innerHTML = highlight(json);
+
+  outEl.replaceChildren(
+    el('div', { class: 'export' }, [
+      el('div', { class: 'export-head' }, [
+        el('span', { class: 'title' }, ['export — ', el('b', {}, ['tokens.json'])]),
+        el('span', { class: 'spacer' }),
+        fmtSeg, copyBtn, downloadBtn,
+      ]),
+      pre,
+    ]),
+  );
+}
+
+const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+function highlight(json: string): string {
+  return esc(json).replace(/(&quot;[^&]*?&quot;|"[^"]*?")(\s*:)?/g, (_m, str, colon) =>
+    colon ? `<span class="k">${str}</span>${colon}` : `<span class="v">${str}</span>`,
+  );
 }
 
 /** Coerce any CSS color to a #rrggbb the <input type=color> accepts. */

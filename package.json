@@ -48,6 +48,8 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/space-grotesk": "^5.2.10",
     "apca-w3": "^0.1.9",
     "culori": "^4.0.1"
   },
