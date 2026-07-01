@@ -16,6 +16,14 @@ export const constant = (v: number): Curve => () => v;
 export const linear = (from: number, to: number): Curve => (t) => from + (to - from) * clamp01(t);
 
 /**
+ * Hue torsion: a linear hue sweep from `start` (t=0, lightest) to `end` (t=1,
+ * darkest), in degrees. Values may run past 360 / below 0 — the engine
+ * normalizes hue when it builds each swatch, so an increasing ramp reads as a
+ * continuous rotation. Cool highlights / warm shadows are the classic use.
+ */
+export const hueRamp = (start: number, end: number): Curve => linear(start, end);
+
+/**
  * Gamma-biased ramp from `from` (t=0) to `to` (t=1).
  *  gamma = 1  -> linear (perceptually even in OKLCH L)
  *  gamma > 1  -> steps bunch toward the `from` end (finer light shades)
@@ -54,6 +62,33 @@ export function bump(opts: {
 
 /** Smooth 0..1 ease-in-out (raised cosine). */
 const ease = (u: number) => 0.5 - 0.5 * Math.cos(Math.PI * clamp01(u));
+
+/**
+ * Inverse of `bump`: the `peak` value such that `bump(opts)` evaluated at `t`
+ * equals `value`. Used to derive a family's peak chroma from a seed color, so
+ * the chroma ramp passes through the seed's own chroma at its step. Defaults
+ * mirror `defaultChroma` so the derivation is exact for the default policy.
+ *
+ * Degenerate at the endpoints (t=0 or t=1), where `bump` sits on its floor
+ * independent of the peak — there we simply return `value`.
+ */
+export function bumpPeakFor(
+  value: number,
+  t: number,
+  opts: { tPeak?: number; light?: number; dark?: number } = {},
+): number {
+  const { tPeak = 0.6, light = 0.025, dark = 0.05 } = opts;
+  const tp = clamp01(tPeak);
+  const x = clamp01(t);
+  if (x <= tp) {
+    // Rising: value = light + (peak - light) * e  ->  peak = light + (value - light) / e
+    const e = ease(tp === 0 ? 1 : x / tp);
+    return e === 0 ? value : light + (value - light) / e;
+  }
+  // Falling: value = peak + (dark - peak) * e  ->  peak = (value - dark * e) / (1 - e)
+  const e = ease(tp === 1 ? 1 : (x - tp) / (1 - tp));
+  return e === 1 ? value : (value - dark * e) / (1 - e);
+}
 
 /** Smootherstep (Perlin), 0..1: flat at both ends, steep in the middle. */
 const smootherstep = (x: number) => {

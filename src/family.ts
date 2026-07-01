@@ -8,7 +8,7 @@
  *      value progression passes through pinned colors without kinks
  *   4. gamut-map every swatch (chroma clamp) so the stored OKLCH is displayable
  */
-import { type Curve, constant, defaultLightness, defaultChroma } from './curves.js';
+import { type Curve, constant, defaultLightness, defaultChroma, bumpPeakFor } from './curves.js';
 import { STEP_NAMES, STEP_T, STEP_COUNT, stepIndex, type StepName } from './naming.js';
 import { parse, gamutClamp, toHex, toCss, type Oklch } from './color/oklch.js';
 
@@ -123,4 +123,52 @@ export function resolveFamily(spec: FamilySpec): Family {
   }
 
   return { name: spec.name, swatches, monotone: breaks.length === 0, monotoneBreaks: breaks };
+}
+
+export interface SeedSpec {
+  /** Family name / token group name. */
+  name: string;
+  /** The fixed brand color that anchors the family (any CSS color or OKLCH). */
+  seed: string | Oklch;
+  /** Step the seed lands on — a step name ("500") or 0-based index. Default "500". */
+  step?: StepName | number;
+  /**
+   * Total hue rotation across the ramp, in degrees. The hue still equals the
+   * seed's exactly at the seed's own step, so the pinned color is honored and
+   * its neighbors rotate around it. Default 0 (constant hue).
+   */
+  hueTorsion?: number;
+  /** Lightness ramp. Defaults to the standard bright-tint -> deep-shade ramp. */
+  lightness?: Curve;
+  /**
+   * Peak chroma, or a full chroma curve. Default: derived from the seed so the
+   * chroma ramp passes through the seed's own chroma at its step — the family
+   * inherits the seed's colorfulness instead of a fixed default.
+   */
+  chroma?: number | Curve;
+}
+
+/**
+ * Build a FamilySpec anchored to a single fixed color.
+ *
+ * The family's hue — and, by default, its chroma level — are read FROM the
+ * seed; the full ramp is generated around it; and the seed is pinned at its
+ * step via a lock. This is the "one brand color -> full tonal family" entry
+ * point: pass it a resolvable spec and hand the result to `resolveFamily`.
+ */
+export function seedFamily(spec: SeedSpec): FamilySpec {
+  const seed = parse(spec.seed);
+  const idx = stepIndex(spec.step ?? '500');
+  const tSeed = STEP_T[idx]!;
+  const torsion = spec.hueTorsion ?? 0;
+  const hue: number | Curve =
+    torsion === 0 ? seed.h : (t: number) => seed.h + torsion * (t - tSeed);
+  const chroma = spec.chroma ?? bumpPeakFor(seed.c, tSeed);
+  return {
+    name: spec.name,
+    hue,
+    chroma,
+    lightness: spec.lightness,
+    locks: { [STEP_NAMES[idx]!]: seed } as FamilySpec['locks'],
+  };
 }

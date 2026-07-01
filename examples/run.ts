@@ -1,4 +1,5 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
+import { seedFamily } from '../src/family.js';
 import { resolvePalette } from '../src/palette.js';
 import { checkContract, summarizeContract } from '../src/validate.js';
 import { renderDashboard } from '../src/dashboard/render.js';
@@ -15,6 +16,9 @@ const palette = resolvePalette({
     { name: 'red', hue: 27 },
     { name: 'violet', hue: 300 },
     { name: 'gray', hue: 260, chroma: 0.01 }, // near-neutral
+    // Seed-driven: one brand color -> a full family. Hue and chroma are read
+    // from the seed; it is pinned at step 500; the ramp is built around it.
+    seedFamily({ name: 'brand', seed: '#e11d48', step: '500' }),
   ],
 });
 
