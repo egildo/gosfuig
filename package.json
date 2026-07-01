@@ -3,8 +3,35 @@
   "version": "0.1.0",
   "description": "Perceptual (OKLCH) design-system palette generator with contrast validation and W3C token export",
   "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "oklch",
+    "color",
+    "palette",
+    "design-tokens",
+    "design-system",
+    "contrast",
+    "wcag",
+    "apca",
+    "accessibility",
+    "dtcg"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
