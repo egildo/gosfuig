@@ -88,6 +88,20 @@ toW3CTokens(palette, { colorSpace: 'srgb' });  // hex strings only
 
 `renderDashboard(palette)` returns a self-contained HTML page with each family's swatch strip and full pairwise contrast grid.
 
+## CLI
+
+```sh
+gosfuig <config> [options]
+```
+
+Resolves a palette spec, prints the contract summary, and writes `tokens.json` (and an HTML dashboard) to an output directory. The config is a `.json` PaletteSpec, or a `.js`/`.mjs` module whose default export is a PaletteSpec (this form can use `seedFamily` and curve builders).
+
+```sh
+gosfuig palette.config.mjs -o tokens        # emit to ./tokens
+gosfuig palette.json --srgb --no-dashboard  # hex-only tokens, no dashboard
+gosfuig palette.json --strict               # exit 1 if any family fails the contract (CI)
+```
+
 ## Studio
 
 An interactive browser front-end lives in `src/studio`.
