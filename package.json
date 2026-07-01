@@ -38,7 +38,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "tsc -p tsconfig.json --noEmit && vitest run",
+    "check": "tsc -p tsconfig.json --noEmit && vitest run && eslint .",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.{ts,css}\" \"examples/**/*.ts\" \"*.{json,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,css}\" \"examples/**/*.ts\"",
     "demo": "tsx examples/run.ts",
     "dev": "vite",
     "studio:build": "vite build"
@@ -49,10 +52,16 @@
     "culori": "^4.0.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/culori": "^4.0.1",
     "@types/node": "^22.10.0",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.4",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "typescript-eslint": "^8.62.1",
     "vite": "^8.1.1",
     "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^2.1.9"
