@@ -3,49 +3,103 @@
  *
  * UI + state only. All color math is delegated to the real library in ../.
  *
- * Rendering model: controls are built ONCE and persist. Slider input mutates
- * state and calls a lightweight refresh() that recomputes derived views
- * (swatches, contract badge, grid) and writes them into existing nodes — the
- * slider you are dragging is never recreated, so dragging is smooth and the
- * live contract check actually tracks the values. Structural changes
- * (add/remove family) do a full remount.
+ * Model: a family is either "from color" (a fixed seed color drives its hue —
+ * and, by default, its chroma — via seedFamily) or "free hue" (a hue slider
+ * drives it). Each family carries its own lightness ramp, chroma shape, and
+ * hue torsion, edited in a collapsible curves panel. Step count is palette-wide.
+ *
+ * Rendering: controls are built ONCE and persist; slider input mutates state
+ * and calls a lightweight refresh() that recomputes derived views (swatches,
+ * contract badge, grid) into existing nodes, so the slider you are dragging is
+ * never recreated. Structural changes (add/remove family, change step count) do
+ * a full remount.
  */
 import './studio.css';
-import { resolveFamily, type FamilySpec, type Family } from '../family.js';
-import { ramp } from '../curves.js';
-import { STEP_NAMES, type StepName } from '../naming.js';
-import { checkContract, contrastMatrix, DARKEST_4, LIGHTEST_4 } from '../validate.js';
+import { seedFamily, resolveFamily, type FamilySpec, type Family } from '../family.js';
+import { ramp, bump, hueRamp } from '../curves.js';
+import { makeScale } from '../naming.js';
+import { checkContract, contrastMatrix, contractRegion } from '../validate.js';
 import { toW3CTokens } from '../export/w3c.js';
 import { parse, toHex } from '../color/oklch.js';
 
 // ---- studio state (declarative; fed straight into the library) ----
-interface GlobalCurve { max: number; min: number; gamma: number; sCurve: number; }
+type Mode = 'seed' | 'free';
 interface FamilyState {
   name: string;
+  mode: Mode;
+  // free-hue mode
   hue: number;
+  // from-color mode
+  seed: string; // hex
+  seedStep: number; // index into the current scale
+  chromaAuto: boolean; // seed drives chroma
+  // chroma peak + shape
   chroma: number;
-  lock: { index: number; hex: string } | null;
+  tPeak: number;
+  chromaLight: number;
+  chromaDark: number;
+  // hue torsion (degrees across the ramp)
+  hueTorsion: number;
+  // per-family lightness ramp
+  lightMax: number;
+  lightMin: number;
+  gamma: number;
+  sCurve: number;
 }
 
-const glob: GlobalCurve = { max: 0.98, min: 0.18, gamma: 1.0, sCurve: 0.13 };
+const LIGHT_DEFAULT = { lightMax: 0.98, lightMin: 0.18, gamma: 1.0, sCurve: 0.13 };
+const CHROMA_DEFAULT = { chroma: 0.14, tPeak: 0.6, chromaLight: 0.025, chromaDark: 0.05 };
+
+function mkFamily(over: Partial<FamilyState>): FamilyState {
+  return {
+    name: 'family',
+    mode: 'seed',
+    hue: 259,
+    seed: '#1d4ed8',
+    seedStep: 6,
+    chromaAuto: true,
+    hueTorsion: 0,
+    ...LIGHT_DEFAULT,
+    ...CHROMA_DEFAULT,
+    ...over,
+  };
+}
+
+let steps = 12; // palette-wide step count
+let openGrid = -1; // index of the family whose contrast grid is expanded (-1 = none)
 
 const families: FamilyState[] = [
-  { name: 'blue', hue: 259, chroma: 0.14, lock: { index: 8, hex: '#1d4ed8' } },
-  { name: 'green', hue: 150, chroma: 0.14, lock: null },
-  { name: 'amber', hue: 75, chroma: 0.16, lock: null },
-  { name: 'red', hue: 27, chroma: 0.14, lock: null },
-  { name: 'violet', hue: 300, chroma: 0.14, lock: null },
-  { name: 'gray', hue: 260, chroma: 0.01, lock: null },
+  mkFamily({ name: 'blue', seed: '#1d4ed8', seedStep: 8 }),
+  mkFamily({ name: 'green', seed: '#059669', seedStep: 7 }),
+  mkFamily({ name: 'amber', seed: '#d97706', seedStep: 7 }),
+  mkFamily({ name: 'red', seed: '#e11d48', seedStep: 6 }),
+  mkFamily({ name: 'violet', seed: '#7c3aed', seedStep: 6 }),
+  mkFamily({ name: 'gray', seed: '#6b7280', seedStep: 6 }),
 ];
 
-let openGrid = 0; // index of the family whose contrast grid is expanded (-1 = none)
-
 // ---- bridge studio state -> library FamilySpec ----
-function toSpec(fam: FamilyState): FamilySpec {
-  const locks = fam.lock
-    ? ({ [STEP_NAMES[fam.lock.index] as StepName]: fam.lock.hex } as FamilySpec['locks'])
-    : undefined;
-  return { name: fam.name, hue: fam.hue, chroma: fam.chroma, lightness: ramp(glob), locks };
+function lightnessOf(f: FamilyState) {
+  return ramp({ max: f.lightMax, min: f.lightMin, gamma: f.gamma, sCurve: f.sCurve });
+}
+function chromaCurveOf(f: FamilyState) {
+  return bump({ peak: f.chroma, tPeak: f.tPeak, light: f.chromaLight, dark: f.chromaDark });
+}
+function toSpec(f: FamilyState): FamilySpec {
+  const lightness = lightnessOf(f);
+  if (f.mode === 'seed') {
+    return seedFamily({
+      name: f.name,
+      seed: f.seed,
+      step: Math.min(f.seedStep, steps - 1),
+      steps,
+      hueTorsion: f.hueTorsion,
+      lightness,
+      chroma: f.chromaAuto ? undefined : chromaCurveOf(f),
+    });
+  }
+  const hue =
+    f.hueTorsion !== 0 ? hueRamp(f.hue - f.hueTorsion / 2, f.hue + f.hueTorsion / 2) : f.hue;
+  return { name: f.name, hue, chroma: chromaCurveOf(f), lightness, steps };
 }
 
 // ---- tiny DOM helper ----
@@ -66,13 +120,14 @@ function el(tag: string, attrs: Attrs = {}, kids: (Node | string | null)[] = [])
 function slider(
   cls: string, label: string, val: number, min: number, max: number, step: number,
   fmt: (v: number) => string, on: (v: number) => void,
-): HTMLElement {
+): { root: HTMLElement; input: HTMLInputElement } {
   const out = el('b', {}, [fmt(val)]);
-  const inp = el('input', {
+  const input = el('input', {
     type: 'range', min, max, step, value: val,
     oninput: (e) => { const v = +(e.target as HTMLInputElement).value; out.textContent = fmt(v); on(v); },
-  });
-  return el('div', { class: cls }, [el('label', {}, [label, out]), inp]);
+  }) as HTMLInputElement;
+  const root = el('div', { class: cls }, [el('label', {}, [label, out]), input]);
+  return { root, input };
 }
 
 // ---- persistent shell ----
@@ -86,28 +141,26 @@ let cards: Card[] = [];
 function mount(): void {
   app.innerHTML = '';
 
-  // global curve controls (built once — these persist across refreshes)
-  app.append(
-    el('div', { class: 'globals' }, [
-      slider('ctrl', 'L max', glob.max, 0.94, 0.995, 0.005, (v) => v.toFixed(3), (v) => { glob.max = v; refreshAll(); }),
-      slider('ctrl', 'L min', glob.min, 0.12, 0.3, 0.005, (v) => v.toFixed(3), (v) => { glob.min = v; refreshAll(); }),
-      slider('ctrl', 'gamma', glob.gamma, 0.6, 1.6, 0.05, (v) => v.toFixed(2), (v) => { glob.gamma = v; refreshAll(); }),
-      slider('ctrl', 'S-curve', glob.sCurve, 0, 0.5, 0.01, (v) => v.toFixed(2), (v) => { glob.sCurve = v; refreshAll(); }),
-    ]),
-  );
+  // global controls
+  const stepCtrl = slider('ctrl', 'steps', steps, 5, 16, 1, (v) => String(v), (v) => {
+    steps = v;
+    for (const f of families) f.seedStep = Math.min(f.seedStep, steps - 1);
+    remountFamilies();
+  });
+  app.append(el('div', { class: 'globals' }, [stepCtrl.root]));
 
-  // live pass summary
-  app.append(el('div', { class: 'summary' }, [summaryEl, el('span', { class: 'legend' }, ['contract = 4 darkest readable (WCAG AA ≥ 4.5) on 4 lightest'])]));
+  app.append(el('div', { class: 'summary' }, [
+    summaryEl,
+    el('span', { class: 'legend' }, ['contract = darkest steps readable (WCAG AA ≥ 4.5) on the lightest']),
+  ]));
 
   app.append(famHost);
 
-  app.append(
-    el('div', { class: 'row' }, [
-      el('button', { class: 'btn add', onclick: addFamily }, ['+ add family']),
-      el('button', { class: 'btn', onclick: showTokens }, ['export W3C tokens']),
-      el('span', { class: 'legend' }, ['click any swatch to toggle its contrast grid']),
-    ]),
-  );
+  app.append(el('div', { class: 'row' }, [
+    el('button', { class: 'btn add', onclick: addFamily }, ['+ add family']),
+    el('button', { class: 'btn', onclick: showTokens }, ['export W3C tokens']),
+    el('span', { class: 'legend' }, ['click any swatch to toggle its contrast grid']),
+  ]));
   app.append(outEl);
 
   remountFamilies();
@@ -136,47 +189,101 @@ function updateSummary(): void {
 // ---- one family card ----
 function buildCard(fi: number): Card {
   const fam = families[fi]!;
+  const scale = makeScale(steps);
   const strip = el('div', { class: 'strip' });
   const badge = el('span', { class: 'status' });
   const gridHost = el('div', { class: 'grid-host' });
 
-  const nameInput = el('input', { type: 'text', value: fam.name, 'aria-label': 'family name', oninput: (e) => { fam.name = (e.target as HTMLInputElement).value; } });
-
-  // A single-family change can flip its own pass state, so keep the summary live too.
+  // A single-family change can flip its own pass state, so keep the summary live.
   const refreshSelf = () => { refresh(); updateSummary(); };
 
-  const lockSel = el('select', {
-    'aria-label': 'lock step',
-    onchange: (e) => {
-      const v = (e.target as HTMLSelectElement).value;
-      fam.lock = v === '' ? null : { index: +v, hex: fam.lock?.hex ?? '#888888' };
-      lockColor.disabled = !fam.lock;
-      refreshSelf();
-    },
+  const nameInput = el('input', {
+    type: 'text', value: fam.name, 'aria-label': 'family name',
+    oninput: (e) => { fam.name = (e.target as HTMLInputElement).value; },
+  });
+
+  // hue source: from-color (seed) or free hue
+  const modeSel = el('select', {
+    'aria-label': 'hue source', class: 'mode',
+    onchange: (e) => { fam.mode = (e.target as HTMLSelectElement).value as Mode; sync(); refreshSelf(); },
   }) as HTMLSelectElement;
-  lockSel.append(el('option', { value: '' }, ['no lock']));
-  STEP_NAMES.forEach((n, i) => lockSel.append(el('option', { value: i, selected: !!(fam.lock && fam.lock.index === i) }, ['lock ' + n])));
-  const lockColor = el('input', {
-    type: 'color', 'aria-label': 'lock color', value: fam.lock ? normalizeHex(fam.lock.hex) : '#888888',
-    oninput: (e) => { if (fam.lock) { fam.lock.hex = (e.target as HTMLInputElement).value; refreshSelf(); } },
+  modeSel.append(
+    el('option', { value: 'seed', selected: fam.mode === 'seed' }, ['from color']),
+    el('option', { value: 'free', selected: fam.mode === 'free' }, ['free hue']),
+  );
+
+  // --- from-color controls ---
+  const seedColor = el('input', {
+    type: 'color', 'aria-label': 'base color', value: normalizeHex(fam.seed),
+    oninput: (e) => { fam.seed = (e.target as HTMLInputElement).value; refreshSelf(); },
   }) as HTMLInputElement;
-  lockColor.disabled = !fam.lock;
+  const seedStepSel = el('select', {
+    'aria-label': 'pin step',
+    onchange: (e) => { fam.seedStep = +(e.target as HTMLSelectElement).value; refreshSelf(); },
+  }) as HTMLSelectElement;
+  scale.names.forEach((n, i) =>
+    seedStepSel.append(el('option', { value: i, selected: i === Math.min(fam.seedStep, steps - 1) }, ['pin ' + n])));
+  const seedCtrls = el('div', { class: 'seed-only src' }, [
+    el('label', { class: 'srclab' }, ['color']), seedColor, seedStepSel,
+  ]);
+
+  // --- free-hue controls ---
+  const hue = slider('mini', 'hue', fam.hue, 0, 360, 1, (v) => `${v}°`, (v) => { fam.hue = v; refreshSelf(); });
+  const freeCtrls = el('div', { class: 'free-only' }, [hue.root]);
+
+  // --- chroma peak (+ auto toggle for seed mode) ---
+  const chroma = slider('mini', 'chroma', fam.chroma, 0, 0.3, 0.005, (v) => v.toFixed(3), (v) => { fam.chroma = v; refreshSelf(); });
+  const autoChk = el('input', {
+    type: 'checkbox', checked: fam.chromaAuto, 'aria-label': 'auto chroma from color',
+    onchange: (e) => { fam.chromaAuto = (e.target as HTMLInputElement).checked; sync(); refreshSelf(); },
+  }) as HTMLInputElement;
+  const autoWrap = el('label', { class: 'seed-only chk', title: 'derive chroma from the base color' }, [autoChk, 'auto']);
+
+  const curvesBtn = el('button', { class: 'btn icon', 'aria-label': 'toggle curves', title: 'curve controls' }, ['⚙']);
 
   const top = el('div', { class: 'fam-top' }, [
-    nameInput,
-    slider('mini', 'hue', fam.hue, 0, 360, 1, (v) => `${v}°`, (v) => { fam.hue = v; refreshSelf(); }),
-    slider('mini', 'chroma', fam.chroma, 0, 0.2, 0.005, (v) => v.toFixed(3), (v) => { fam.chroma = v; refreshSelf(); }),
-    badge,
-    el('div', { class: 'lockrow' }, [lockSel, lockColor]),
+    nameInput, modeSel, seedCtrls, freeCtrls, chroma.root, autoWrap, badge,
+    curvesBtn,
     el('button', { class: 'btn icon remove', 'aria-label': 'remove family', title: 'remove family', onclick: () => removeFamily(fi) }, ['✕']),
   ]);
 
-  const root = el('div', { class: 'fam' }, [top, strip, gridHost]);
+  // ---- curves panel (persistent; toggled by class) ----
+  const lMax = slider('mini', 'L max', fam.lightMax, 0.9, 0.995, 0.005, (v) => v.toFixed(3), (v) => { fam.lightMax = v; refreshSelf(); });
+  const lMin = slider('mini', 'L min', fam.lightMin, 0.08, 0.35, 0.005, (v) => v.toFixed(3), (v) => { fam.lightMin = v; refreshSelf(); });
+  const gam = slider('mini', 'gamma', fam.gamma, 0.6, 1.6, 0.05, (v) => v.toFixed(2), (v) => { fam.gamma = v; refreshSelf(); });
+  const sc = slider('mini', 'S-curve', fam.sCurve, 0, 0.5, 0.01, (v) => v.toFixed(2), (v) => { fam.sCurve = v; refreshSelf(); });
+  const tors = slider('mini', 'hue torsion', fam.hueTorsion, -60, 60, 1, (v) => `${v}°`, (v) => { fam.hueTorsion = v; refreshSelf(); });
+  const tPk = slider('mini', 'chroma peak @', fam.tPeak, 0.2, 0.9, 0.05, (v) => v.toFixed(2), (v) => { fam.tPeak = v; refreshSelf(); });
+  const cLo = slider('mini', 'chroma light', fam.chromaLight, 0, 0.1, 0.005, (v) => v.toFixed(3), (v) => { fam.chromaLight = v; refreshSelf(); });
+  const cHi = slider('mini', 'chroma dark', fam.chromaDark, 0, 0.1, 0.005, (v) => v.toFixed(3), (v) => { fam.chromaDark = v; refreshSelf(); });
+  const copyBtn = el('button', { class: 'btn', onclick: () => copyCurvesToAll(fi) }, ['copy curves → all']);
+
+  const curves = el('div', { class: 'curves' }, [
+    el('div', { class: 'curve-group' }, [el('span', { class: ' glab' }, ['lightness']), lMax.root, lMin.root, gam.root, sc.root]),
+    el('div', { class: 'curve-group' }, [el('span', { class: ' glab' }, ['chroma shape']), tPk.root, cLo.root, cHi.root]),
+    el('div', { class: 'curve-group' }, [el('span', { class: ' glab' }, ['hue']), tors.root]),
+    el('div', { class: 'curve-group' }, [copyBtn]),
+  ]);
+  curvesBtn.addEventListener('click', () => root.classList.toggle('open-curves'));
+
+  const root = el('div', { class: 'fam' }, [top, curves, strip, gridHost]);
+  root.dataset.mode = fam.mode;
+
+  /** Enable/disable + show/hide controls that depend on mode / auto-chroma. */
+  function sync(): void {
+    root.dataset.mode = fam.mode;
+    const chromaLocked = fam.mode === 'seed' && fam.chromaAuto;
+    chroma.input.disabled = chromaLocked;
+    for (const s of [tPk.input, cLo.input, cHi.input]) s.disabled = chromaLocked;
+    autoChk.checked = fam.chromaAuto;
+  }
 
   function refresh(): void {
     const family = resolveFamily(toSpec(fam));
     const c = checkContract(family);
+    const region = contractRegion(family.swatches.length);
 
+    strip.style.gridTemplateColumns = `repeat(${family.swatches.length}, 1fr)`;
     strip.replaceChildren(...family.swatches.map((s) => {
       const ink = s.oklch.l > 0.6 ? '#15171a' : '#fff';
       return el('div', {
@@ -190,14 +297,15 @@ function buildCard(fi: number): Card {
     badge.className = 'status ' + (c.passes ? 'ok' : 'bad');
     badge.textContent = `${c.passes ? 'PASS' : 'FAIL ×' + c.failures.length} · worst ${c.worst.fg.name}/${c.worst.bg.name} ${c.worst.contrast.wcag.toFixed(2)}`;
 
-    gridHost.replaceChildren(openGrid === fi ? gridFor(family) : el('span'));
+    gridHost.replaceChildren(openGrid === fi ? gridFor(family, region) : el('span'));
   }
 
+  sync();
   refresh();
   return { el: root, refresh };
 }
 
-function gridFor(family: Family): HTMLElement {
+function gridFor(family: Family, region: { light: number[]; dark: number[] }): HTMLElement {
   const m = contrastMatrix(family);
   const sw = family.swatches;
   const t = el('table', { class: 'grid' });
@@ -206,7 +314,7 @@ function gridFor(family: Family): HTMLElement {
     const tr = el('tr', {}, [el('th', {}, [fg.name])]);
     sw.forEach((bg, c) => {
       const v = m[r]![c]!;
-      const isC = DARKEST_4.includes(r) && LIGHTEST_4.includes(c);
+      const isC = region.dark.includes(r) && region.light.includes(c);
       tr.append(el('td', {
         class: 'cell' + (isC ? ' contract' : ''),
         style: `background:${bg.hex};color:${fg.hex}`,
@@ -220,7 +328,7 @@ function gridFor(family: Family): HTMLElement {
 
 // ---- structural actions ----
 function addFamily(): void {
-  families.push({ name: `family ${families.length + 1}`, hue: 200, chroma: 0.13, lock: null });
+  families.push(mkFamily({ name: `family ${families.length + 1}`, seed: '#3b82f6', seedStep: Math.min(6, steps - 1) }));
   openGrid = -1;
   remountFamilies();
 }
@@ -230,14 +338,26 @@ function removeFamily(fi: number): void {
   else if (openGrid > fi) openGrid -= 1;
   remountFamilies();
 }
+function copyCurvesToAll(fi: number): void {
+  const src = families[fi]!;
+  for (const f of families) {
+    if (f === src) continue;
+    f.lightMax = src.lightMax; f.lightMin = src.lightMin; f.gamma = src.gamma; f.sCurve = src.sCurve;
+    f.tPeak = src.tPeak; f.chromaLight = src.chromaLight; f.chromaDark = src.chromaDark;
+    f.hueTorsion = src.hueTorsion;
+  }
+  remountFamilies();
+}
 
+let lastTokenUrl: string | null = null;
 function showTokens(): void {
   const palette = { name: 'gosfuig studio', families: families.map((f) => resolveFamily(toSpec(f))) };
   const json = JSON.stringify(toW3CTokens(palette), null, 2);
   outEl.innerHTML = '';
+  if (lastTokenUrl) { URL.revokeObjectURL(lastTokenUrl); lastTokenUrl = null; }
   try {
-    const blob = new Blob([json], { type: 'application/json' });
-    outEl.append(el('a', { class: 'btn', href: URL.createObjectURL(blob), download: 'tokens.json', style: 'display:inline-block;margin-bottom:8px' }, ['⬇ download tokens.json']));
+    lastTokenUrl = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    outEl.append(el('a', { class: 'btn', href: lastTokenUrl, download: 'tokens.json', style: 'display:inline-block;margin-bottom:8px' }, ['⬇ download tokens.json']));
   } catch { /* download unavailable in sandbox */ }
   outEl.append(el('pre', {}, [json]));
 }
