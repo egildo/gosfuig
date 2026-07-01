@@ -1,0 +1,26 @@
+{
+  "name": "gosfuig",
+  "version": "0.1.0",
+  "description": "Perceptual (OKLCH) design-system palette generator with contrast validation and W3C token export",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "demo": "tsx examples/run.ts",
+    "dev": "vite",
+    "studio:build": "vite build"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "apca-w3": "^0.1.9",
+    "culori": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/culori": "^4.0.1",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^8.1.1",
+    "vite-plugin-singlefile": "^2.3.3"
+  }
+}
