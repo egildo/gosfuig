@@ -9,12 +9,24 @@
 import { evaluate, type ContrastVerdict } from './color/contrast.js';
 import type { Family, Swatch } from './family.js';
 
-/** Indices of the 4 lightest (backgrounds) and 4 darkest (foregrounds) steps. */
+/** Indices of the 4 lightest (backgrounds) and 4 darkest (foregrounds) steps of the default 12-step scale. */
 export const LIGHTEST_4 = [0, 1, 2, 3];
 export const DARKEST_4 = [8, 9, 10, 11];
 
 /** WCAG AA threshold for normal text. */
 export const AA = 4.5;
+
+/**
+ * The contract region for an N-step family: the lightest-K steps (backgrounds)
+ * and darkest-K steps (foregrounds), with K = round(N/3). For N=12 this is the
+ * familiar lightest-4 / darkest-4; it scales sensibly for other step counts.
+ */
+export function contractRegion(count: number): { light: number[]; dark: number[] } {
+  const k = Math.max(1, Math.min(Math.round(count / 3), Math.floor(count / 2)));
+  const light = Array.from({ length: k }, (_, i) => i);
+  const dark = Array.from({ length: k }, (_, i) => count - k + i);
+  return { light, dark };
+}
 
 export interface PairContrast {
   fg: Swatch;
@@ -37,8 +49,9 @@ export function checkContract(
   family: Family,
   opts: { fgIndices?: number[]; bgIndices?: number[]; threshold?: number } = {},
 ): ContractResult {
-  const fgIdx = opts.fgIndices ?? DARKEST_4;
-  const bgIdx = opts.bgIndices ?? LIGHTEST_4;
+  const region = contractRegion(family.swatches.length);
+  const fgIdx = opts.fgIndices ?? region.dark;
+  const bgIdx = opts.bgIndices ?? region.light;
   const threshold = opts.threshold ?? AA;
 
   const failures: PairContrast[] = [];

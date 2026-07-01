@@ -11,7 +11,7 @@
  */
 import type { Palette } from '../palette.js';
 import type { Family } from '../family.js';
-import { contrastMatrix, checkContract, DARKEST_4, LIGHTEST_4, type ContractResult } from '../validate.js';
+import { contrastMatrix, checkContract, contractRegion, type ContractResult } from '../validate.js';
 
 export function renderDashboard(palette: Palette): string {
   const families = palette.families.map((f) => renderFamily(f, checkContract(f))).join('\n');
@@ -60,6 +60,7 @@ function renderFamily(family: Family, contract: ContractResult): string {
     .join('');
 
   const matrix = contrastMatrix(family);
+  const region = contractRegion(family.swatches.length);
   const head = `<tr><th class="corner">fg \\ bg</th>${family.swatches
     .map((s) => `<th>${s.name}</th>`)
     .join('')}</tr>`;
@@ -69,7 +70,7 @@ function renderFamily(family: Family, contract: ContractResult): string {
         .map((bg, c) => {
           const v = matrix[r]![c]!;
           const cls = v.wcag >= 7 ? 'aaa' : v.wcag >= 4.5 ? 'aa' : v.wcag >= 3 ? 'aal' : 'fail';
-          const contractCell = DARKEST_4.includes(r) && LIGHTEST_4.includes(c) ? ' contract' : '';
+          const contractCell = region.dark.includes(r) && region.light.includes(c) ? ' contract' : '';
           return `<td class="cell ${cls}${contractCell}" style="background:${bg.hex};color:${fg.hex}">
             <span class="aa-sample">Aa</span>
             <span class="metrics"><span class="m-wcag">${v.wcag.toFixed(1)}</span><span class="m-apca">${v.apca.toFixed(0)}</span></span>

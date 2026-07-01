@@ -9,7 +9,7 @@
  *   4. gamut-map every swatch (chroma clamp) so the stored OKLCH is displayable
  */
 import { type Curve, constant, defaultLightness, defaultChroma, bumpPeakFor } from './curves.js';
-import { STEP_NAMES, STEP_T, STEP_COUNT, stepIndex, type StepName } from './naming.js';
+import { STEP_COUNT, makeScale, type StepName } from './naming.js';
 import { parse, gamutClamp, toHex, toCss, type Oklch } from './color/oklch.js';
 
 export interface FamilySpec {
@@ -21,14 +21,16 @@ export interface FamilySpec {
   chroma?: number | Curve;
   /** Lightness ramp. Defaults to a bright-tint -> deep-shade gamma ramp. */
   lightness?: Curve;
+  /** Number of steps in the ramp. Default 12 (the canonical named scale). */
+  steps?: number;
   /** Pinned colors: step name ("500") or index -> any CSS color / OKLCH. */
   locks?: Partial<Record<StepName, string | Oklch>> | Record<number, string | Oklch>;
 }
 
 export interface Swatch {
   /** Step name, e.g. "500". */
-  name: StepName;
-  /** 0..11 position on the ramp. */
+  name: string;
+  /** 0-based position on the ramp. */
   index: number;
   /** Position on the 0..1 ramp. */
   t: number;
@@ -48,10 +50,11 @@ export interface Family {
   /** True if lightness is strictly decreasing (monotone) across the ramp. */
   monotone: boolean;
   /** Steps where a lock broke lightness ordering, if any (names). */
-  monotoneBreaks: StepName[];
+  monotoneBreaks: string[];
 }
 
 export function resolveFamily(spec: FamilySpec): Family {
+  const scale = makeScale(spec.steps ?? STEP_COUNT);
   const hueCurve: Curve = typeof spec.hue === 'number' ? constant(spec.hue) : spec.hue;
   const chromaCurve: Curve =
     typeof spec.chroma === 'function' ? spec.chroma : defaultChroma(spec.chroma ?? 0.14);
@@ -60,23 +63,23 @@ export function resolveFamily(spec: FamilySpec): Family {
   // Normalize locks to index -> OKLCH.
   const locks = new Map<number, Oklch>();
   for (const [key, val] of Object.entries(spec.locks ?? {})) {
-    // Lock keys are step names ("700") or raw indices (7). Step names and the
-    // 0..11 index range never overlap, so prefer a name match, else treat as index.
-    const idx = STEP_NAMES.includes(key as StepName) ? stepIndex(key as StepName) : stepIndex(Number(key));
+    // Lock keys are step names ("700") or raw indices (7). Names and the index
+    // range never overlap, so prefer a name match, else treat the key as an index.
+    const idx = scale.names.includes(key) ? scale.indexOf(key) : scale.indexOf(Number(key));
     locks.set(idx, parse(val as string | Oklch));
   }
 
   // Base curves.
-  const baseL = STEP_T.map((t) => lightCurve(t));
-  const baseC = STEP_T.map((t) => chromaCurve(t));
-  const baseH = STEP_T.map((t) => hueCurve(t));
+  const baseL = scale.t.map((t) => lightCurve(t));
+  const baseC = scale.t.map((t) => chromaCurve(t));
+  const baseH = scale.t.map((t) => hueCurve(t));
 
   // Lightness residual anchoring: residual = lockedL - baseL at locked steps and
   // at the two endpoints (0 there unless they are themselves locked). Interpolate
   // residual linearly across indices, then add back — base curve shape preserved,
   // locked lightness hit exactly.
   const anchors: Array<{ i: number; r: number }> = [];
-  const endpoints = [0, STEP_COUNT - 1];
+  const endpoints = [0, scale.count - 1];
   for (const i of endpoints) {
     const r = locks.has(i) ? locks.get(i)!.l - baseL[i]! : 0;
     anchors.push({ i, r });
@@ -100,7 +103,7 @@ export function resolveFamily(spec: FamilySpec): Family {
     return lo.r + (hi.r - lo.r) * f;
   };
 
-  const swatches: Swatch[] = STEP_NAMES.map((name, i) => {
+  const swatches: Swatch[] = scale.names.map((name, i) => {
     const lock = locks.get(i);
     const oklch = lock
       ? gamutClamp(lock)
@@ -108,7 +111,7 @@ export function resolveFamily(spec: FamilySpec): Family {
     return {
       name,
       index: i,
-      t: STEP_T[i]!,
+      t: scale.t[i]!,
       oklch,
       hex: toHex(oklch),
       css: toCss(oklch),
@@ -117,7 +120,7 @@ export function resolveFamily(spec: FamilySpec): Family {
   });
 
   // Monotonicity check (lightness strictly decreasing light -> dark).
-  const breaks: StepName[] = [];
+  const breaks: string[] = [];
   for (let i = 1; i < swatches.length; i++) {
     if (swatches[i]!.oklch.l >= swatches[i - 1]!.oklch.l) breaks.push(swatches[i]!.name);
   }
@@ -130,7 +133,12 @@ export interface SeedSpec {
   name: string;
   /** The fixed brand color that anchors the family (any CSS color or OKLCH). */
   seed: string | Oklch;
-  /** Step the seed lands on — a step name ("500") or 0-based index. Default "500". */
+  /** Number of steps in the ramp. Default 12 (the canonical named scale). */
+  steps?: number;
+  /**
+   * Step the seed lands on — a step name ("500") or 0-based index. Defaults to
+   * the middle step of the scale (which is "500" on the default 12-step scale).
+   */
   step?: StepName | number;
   /**
    * Total hue rotation across the ramp, in degrees. The hue still equals the
@@ -158,8 +166,9 @@ export interface SeedSpec {
  */
 export function seedFamily(spec: SeedSpec): FamilySpec {
   const seed = parse(spec.seed);
-  const idx = stepIndex(spec.step ?? '500');
-  const tSeed = STEP_T[idx]!;
+  const scale = makeScale(spec.steps ?? STEP_COUNT);
+  const idx = spec.step != null ? scale.indexOf(spec.step) : Math.round((scale.count - 1) / 2);
+  const tSeed = scale.t[idx]!;
   const torsion = spec.hueTorsion ?? 0;
   const hue: number | Curve =
     torsion === 0 ? seed.h : (t: number) => seed.h + torsion * (t - tSeed);
@@ -169,6 +178,7 @@ export function seedFamily(spec: SeedSpec): FamilySpec {
     hue,
     chroma,
     lightness: spec.lightness,
-    locks: { [STEP_NAMES[idx]!]: seed } as FamilySpec['locks'],
+    steps: spec.steps,
+    locks: { [scale.names[idx]!]: seed } as FamilySpec['locks'],
   };
 }
