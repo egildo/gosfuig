@@ -7,7 +7,18 @@
  * non-default counts are generated on a 50..950 numeric ladder.
  */
 export const STEP_NAMES = [
-  '25', '50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950',
+  '25',
+  '50',
+  '100',
+  '200',
+  '300',
+  '400',
+  '500',
+  '600',
+  '700',
+  '800',
+  '900',
+  '950',
 ] as const;
 
 export type StepName = (typeof STEP_NAMES)[number];

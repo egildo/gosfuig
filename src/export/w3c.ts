@@ -6,18 +6,24 @@
  * structured shape the Toghen pipeline consumes (colorSpace + components),
  * with a `hex` fallback for consumers that only read sRGB.
  *
- * Shape:
+ * What the tree is *called* and how it nests is a separate concern, owned by
+ * `./shape.js`: prefixes, group and step renames, slug style, flattening. That
+ * is reshape only — it never changes a color, and it is all plain data, so it
+ * can live in the config file alongside the palette.
+ *
+ * Shape (default):
  *   {
- *     "blue": {
+ *     "signal-blue": {
  *       "$type": "color",
  *       "500": { "$value": { "colorSpace": "oklch", "components": [L, C, H], "hex": "#..." } }
  *     }
  *   }
  */
 import type { Palette } from '../palette.js';
-import type { Family } from '../family.js';
+import type { Swatch } from '../family.js';
+import { shapeEntries, assemble, type TokenShape } from './shape.js';
 
-export interface W3CExportOptions {
+export interface W3CExportOptions extends TokenShape {
   /** Stored color space. 'oklch' keeps the perceptual definition (default); 'srgb' emits hex only. */
   colorSpace?: 'oklch' | 'srgb';
   /** Include a `hex` fallback alongside oklch components. Default true. */
@@ -27,53 +33,48 @@ export interface W3CExportOptions {
 }
 
 type ColorValue =
-  | string
-  | { colorSpace: 'oklch'; components: [number, number, number]; hex?: string };
+  string | { colorSpace: 'oklch'; components: [number, number, number]; hex?: string };
 
-interface TokenGroup {
-  $type: 'color';
-  [step: string]: { $value: ColorValue } | 'color';
+export interface ColorToken {
+  $value: ColorValue;
 }
 
 export function toW3CTokens(
   palette: Palette,
   opts: W3CExportOptions = {},
-): Record<string, TokenGroup> {
+): Record<string, unknown> {
   const { colorSpace = 'oklch', hexFallback = true, precision = 4 } = opts;
-  const out: Record<string, TokenGroup> = {};
 
-  for (const family of palette.families) {
-    out[family.name] = familyGroup(family, colorSpace, hexFallback, precision);
-  }
-  return out;
+  const inputs = palette.families.flatMap((family) =>
+    family.swatches.map((s) => ({
+      group: family.name,
+      step: s.name,
+      value: token(s, colorSpace, hexFallback, precision),
+    })),
+  );
+
+  return assemble(shapeEntries(inputs, opts), opts, { $type: 'color' });
 }
 
-function familyGroup(
-  family: Family,
+function token(
+  s: Swatch,
   colorSpace: 'oklch' | 'srgb',
   hexFallback: boolean,
   precision: number,
-): TokenGroup {
-  const group = { $type: 'color' } as TokenGroup;
-  for (const s of family.swatches) {
-    const value: ColorValue =
-      colorSpace === 'srgb'
-        ? s.hex
-        : {
-            colorSpace: 'oklch',
-            components: [
-              round(s.oklch.l, precision),
-              round(s.oklch.c, precision),
-              round(s.oklch.h, 2),
-            ],
-            ...(hexFallback ? { hex: s.hex } : {}),
-          };
-    group[s.name] = { $value: value };
-  }
-  return group;
+): ColorToken {
+  if (colorSpace === 'srgb') return { $value: s.hex };
+  return {
+    $value: {
+      colorSpace: 'oklch',
+      components: [round(s.oklch.l, precision), round(s.oklch.c, precision), round(s.oklch.h, 2)],
+      ...(hexFallback ? { hex: s.hex } : {}),
+    },
+  };
 }
 
 const round = (x: number, p: number) => {
   const f = 10 ** p;
   return Math.round(x * f) / f;
 };
+
+export type { TokenShape, SlugStyle } from './shape.js';

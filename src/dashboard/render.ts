@@ -10,8 +10,15 @@
  *   - a WCAG / APCA / both display toggle
  */
 import type { Palette } from '../palette.js';
-import type { Family } from '../family.js';
-import { contrastMatrix, checkContract, contractRegion, type ContractResult } from '../validate.js';
+import { chromaLoss, type Family } from '../family.js';
+import {
+  contrastMatrix,
+  checkContract,
+  contractRegion,
+  summarizeNotes,
+  MINOR_CHROMA_LOSS,
+  type ContractResult,
+} from '../validate.js';
 
 export function renderDashboard(palette: Palette): string {
   const families = palette.families.map((f) => renderFamily(f, checkContract(f))).join('\n');
@@ -31,6 +38,7 @@ export function renderDashboard(palette: Palette): string {
     <span class="badge aa">AA ≥4.5</span>
     <span class="badge aal">AA-lg ≥3</span>
     <span class="badge fail">fail</span>
+    <span class="marks">★ locked · ~ chroma clamped by the sRGB gamut · dashed = lightness not decreasing</span>
     <span class="spacer"></span>
     <label>show
       <select id="mode" onchange="document.body.dataset.mode=this.value">
@@ -49,11 +57,24 @@ ${families}
 }
 
 function renderFamily(family: Family, contract: ContractResult): string {
+  const breaks = new Set(family.monotoneBreaks);
   const strip = family.swatches
     .map((s) => {
       const ink = s.oklch.l > 0.6 ? '#000' : '#fff';
-      return `<div class="sw" style="background:${s.hex};color:${ink}">
-        <span class="nm">${s.name}${s.locked ? ' ★' : ''}</span>
+      // ★ pinned by a lock · ~ chroma reduced by the gamut · dashed = lightness
+      // stops decreasing here. All three are things the engine did or could not
+      // do, and none of them were visible before.
+      // The marker is for losses worth acting on; the tooltip tells the whole
+      // truth whenever anything was lost at all.
+      const notable = chromaLoss(s) >= MINOR_CHROMA_LOSS;
+      const marks =
+        (s.locked ? ' ★' : '') +
+        (notable
+          ? ` <span class="clamp" title="chroma ${s.requested.c.toFixed(3)} requested, ${s.oklch.c.toFixed(3)} reachable in sRGB at hue ${s.oklch.h.toFixed(0)}">~</span>`
+          : '');
+      const cls = 'sw' + (breaks.has(s.name) ? ' nonmono' : '');
+      return `<div class="${cls}" style="background:${s.hex};color:${ink}">
+        <span class="nm">${s.name}${marks}</span>
         <span class="hx">${s.hex}</span>
       </div>`;
     })
@@ -70,7 +91,8 @@ function renderFamily(family: Family, contract: ContractResult): string {
         .map((bg, c) => {
           const v = matrix[r]![c]!;
           const cls = v.wcag >= 7 ? 'aaa' : v.wcag >= 4.5 ? 'aa' : v.wcag >= 3 ? 'aal' : 'fail';
-          const contractCell = region.dark.includes(r) && region.light.includes(c) ? ' contract' : '';
+          const contractCell =
+            region.dark.includes(r) && region.light.includes(c) ? ' contract' : '';
           return `<td class="cell ${cls}${contractCell}" style="background:${bg.hex};color:${fg.hex}">
             <span class="aa-sample">Aa</span>
             <span class="metrics"><span class="m-wcag">${v.wcag.toFixed(1)}</span><span class="m-apca">${v.apca.toFixed(0)}</span></span>
@@ -86,8 +108,12 @@ function renderFamily(family: Family, contract: ContractResult): string {
     : `<span class="status bad">contract FAIL — ${contract.failures.length} pair(s) below AA</span>`;
   const worst = `worst ${contract.worst.fg.name}/${contract.worst.bg.name} = ${contract.worst.contrast.wcag.toFixed(2)}`;
 
+  const notes = summarizeNotes(family);
+  const notesLine = notes ? `<div class="notes">${esc(notes)}</div>` : '';
+
   return `<section class="fam">
   <div class="fam-head"><h2>${esc(family.name)}</h2>${status}<span class="worst">${worst}</span></div>
+  ${notesLine}
   <div class="strip">${strip}</div>
   <table class="grid">${head}${rows}</table>
 </section>`;
@@ -101,6 +127,7 @@ body{margin:0;padding:24px;background:#0b0b0c;color:#e7e7ea}
 .top h1{margin:0;font-size:20px;font-weight:650}
 .legend{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
 .legend .spacer{flex:1}
+.legend .marks{color:#8a8a92}
 .legend label{display:flex;align-items:center;gap:6px;color:#b9b9c0}
 select{background:#1a1a1d;color:#e7e7ea;border:1px solid #333;border-radius:6px;padding:3px 6px}
 .badge{padding:2px 7px;border-radius:999px;font-weight:600;font-size:11px}
@@ -119,6 +146,9 @@ select{background:#1a1a1d;color:#e7e7ea;border:1px solid #333;border-radius:6px;
 .sw{aspect-ratio:1/1.2;border-radius:8px;padding:8px;display:flex;flex-direction:column;justify-content:space-between;font-size:11px}
 .sw .nm{font-weight:700}
 .sw .hx{opacity:.85;font-variant-numeric:tabular-nums;font-size:10px}
+.sw .clamp{opacity:.75;cursor:help}
+.sw.nonmono{outline:2px dashed #f08aa0;outline-offset:-2px}
+.notes{font-size:11.5px;color:#c9a227;margin:-4px 0 12px;line-height:1.5}
 .grid{border-collapse:separate;border-spacing:2px;width:100%;table-layout:fixed}
 .grid th{font-size:10px;font-weight:600;color:#9a9aa2;padding:2px}
 .grid th.corner,.grid th.rowh{width:34px}
@@ -137,4 +167,5 @@ body.hide-contract .cell.contract{border-color:transparent}
 .foot{margin-top:24px;font-size:11px;color:#6a6a72}
 `;
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+const esc = (s: string) =>
+  s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);

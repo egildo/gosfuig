@@ -5,7 +5,7 @@ Perceptual (OKLCH) design-system palette generator, with contrast validation and
 Describe a color family declaratively — or hand it a single brand color — and gosfuig resolves it into an even, gamut-safe ramp of named steps, checks the accessibility contract (WCAG 2.1 + APCA), and emits [DTCG](https://tr.designtokens.org/format/) design tokens.
 
 - **Perceptual by construction.** All math runs in OKLCH, where lightness, chroma, and hue are independent and perceptually even. Every color that leaves the engine is gamut-mapped into sRGB by reducing chroma, preserving L and H.
-- **One brand color → a full family.** `seedFamily` reads a family's hue (and, by default, its chroma level) *from* a fixed color, builds the ramp around it, and pins the color at its step.
+- **One brand color → a full family.** `seedFamily` reads a family's hue (and, by default, its chroma level) _from_ a fixed color, builds the ramp around it, and pins the color at its step.
 - **Contrast is a first-class output.** Both WCAG 2.1 ratios and APCA Lc, plus a "contract": the darkest steps must be readable (WCAG AA) on the lightest.
 - **Tokens, not screenshots.** Export to the DTCG color format with an OKLCH definition and a hex fallback.
 
@@ -23,8 +23,8 @@ import { resolvePalette, seedFamily, checkContract, summarizeContract, toW3CToke
 const palette = resolvePalette({
   name: 'brand',
   families: [
-    { name: 'blue', hue: 259 },                          // hue-driven family
-    { name: 'gray', hue: 260, chroma: 0.01 },            // near-neutral
+    { name: 'blue', hue: 259 }, // hue-driven family
+    { name: 'gray', hue: 260, chroma: 0.01 }, // near-neutral
     seedFamily({ name: 'accent', seed: '#e11d48', step: '500' }), // one color -> a family
   ],
 });
@@ -45,15 +45,39 @@ A family is three curves over `t ∈ [0,1]` (t=0 lightest, t=1 darkest) — **li
 ```ts
 resolveFamily({
   name: 'blue',
-  hue: 259,                        // constant, or a Curve for hue torsion
-  chroma: 0.14,                    // peak chroma with the default bump, or a Curve
-  lightness: ramp({ max: 0.98, min: 0.18, sCurve: 0.13 }), // optional
-  steps: 12,                       // default 12
-  locks: { '700': '#1d4ed8' },     // pin an exact color at a step
+  hue: 259, // a number, or a CurveSpec for hue torsion
+  chroma: 0.14, // peak chroma with the default bump, or a CurveSpec
+  lightness: { kind: 'ramp', max: 0.98, min: 0.18, sCurve: 0.13 }, // optional
+  steps: 12, // default 12
+  locks: { '700': '#1d4ed8' }, // pin an exact color at a step
 });
 ```
 
-Curve builders: `constant`, `linear`, `gamma`, `ramp` (lightness), `bump` (chroma), `hueRamp` (hue torsion), and the defaults `defaultLightness` / `defaultChroma`.
+**A curve is data, not a function.** Every curve is a plain tagged object — a `CurveSpec` — which is what makes a spec serializable:
+
+| `kind`     | fields                              | used for     |
+| ---------- | ----------------------------------- | ------------ |
+| `constant` | `value`                             | a fixed hue  |
+| `linear`   | `from`, `to`                        | anything     |
+| `gamma`    | `from`, `to`, `gamma?`              | biased ramps |
+| `hueRamp`  | `start`, `end`                      | hue torsion  |
+| `ramp`     | `max`, `min`, `gamma?`, `sCurve?`   | lightness    |
+| `bump`     | `peak`, `tPeak?`, `light?`, `dark?` | chroma       |
+
+Because a spec is data, a `.json` config and a `.js` config express exactly the same things, and a palette built in the studio can be written to disk, read by the CLI, and handed to CI unchanged. `compile(spec)` turns a `CurveSpec` into the `(t) => number` closure the engine evaluates; the same-named builders (`constant`, `linear`, `gamma`, `ramp`, `bump`, `hueRamp`, `defaultLightness`, `defaultChroma`) construct that closure directly. `defaultLightnessSpec()` and `defaultChromaSpec(peak)` give the defaults in data form.
+
+### Validation
+
+`parsePaletteSpec(input)` turns untrusted input into a `PaletteSpec` or throws with every problem located:
+
+```
+gosfuig: invalid palette spec (3 problems)
+  families[0].lightness.kind: unknown curve kind "smoothstep" (expected one of constant, linear, gamma, hueRamp, ramp, bump)
+  families[1].hue: expected a number or a curve spec, got "blue"
+  families[1].lightnes: unknown field (expected name, hue, chroma, lightness, steps, locks)
+```
+
+Unknown fields are errors, not warnings, so a typo fails loudly instead of silently resolving to the default. `validatePaletteSpec` / `validateFamilySpec` return `{ ok, value }` or `{ ok, errors }` if you would rather not catch.
 
 ### Seed-driven families
 
@@ -62,9 +86,9 @@ Instead of dialing a hue, hand `seedFamily` a fixed color. It derives the family
 ```ts
 seedFamily({
   name: 'brand',
-  seed: '#1d4ed8',   // any CSS color or OKLCH
-  step: '700',       // where the seed lands (default: the middle step)
-  hueTorsion: 0,     // optional: rotate hue across the ramp, honoring the seed at its step
+  seed: '#1d4ed8', // any CSS color or OKLCH
+  step: '700', // where the seed lands (default: the middle step)
+  hueTorsion: 0, // optional: rotate hue across the ramp, honoring the seed at its step
   steps: 12,
 });
 ```
@@ -75,6 +99,31 @@ seedFamily({
 
 The default scale is 12 steps (`25`, `50`, `100` … `950`). Any family can pick a different count via `steps`; names for non-default counts are generated on a `50…950` ladder. `makeScale(n)` exposes a scale directly.
 
+### Fidelity: what the engine could not deliver
+
+sRGB does not hold the same chroma at every hue. Magenta reaches C 0.309, cyan only 0.150 — a factor of two — so a chroma your spec asks for is often simply unreachable. The engine used to reduce it and hand back the result as though it were what you requested.
+
+Now every swatch keeps both:
+
+```ts
+s.oklch; // what you got — displayable
+s.requested; // what the curves asked for, before gamut mapping
+s.clamped; // true when chroma had to be reduced
+chromaLoss(s); // how much
+```
+
+and the family lists `clampedSteps` alongside the `monotoneBreaks` it already computed. All three front-ends surface it: the CLI prints a note under each family, the dashboard marks the swatch with `~` and outlines a non-monotone step, and the studio does the same with the request in the tooltip.
+
+```
+cyan: PASS — worst 700 on 200 = 5.03 WCAG (APCA 52)
+  ↳ chroma clamped at 4 step(s) [400, 500, 600, 700] — worst 500: 0.157 → 0.115
+    (sRGB cannot hold this chroma at this hue)
+```
+
+`summarizeNotes` ranks by `MINOR_CHROMA_LOSS` (0.01) so a float-level difference doesn't read like a real one; the underlying data is exact regardless.
+
+> **Known defect, deliberately not fixed here.** With the shipped defaults the lightest step clamps at **50 of 72 hues**, by up to 0.0157: `defaultChroma`'s floor of C 0.025 sits above what L 0.98 — `defaultLightness`'s `max` — can hold, which is only 0.0093–0.0705 depending on hue. The fix is to the defaults (a floor near 0.009, or a `lightMax` near 0.95 where 0.0236 is reachable), and it would move the lightest step of every existing palette. It is pinned by a characterization test rather than papered over.
+
 ### The contract
 
 The accessibility contract is: the **darkest K** steps, used as foreground text, must clear **WCAG AA (≥ 4.5)** on the **lightest K** steps, with `K = round(N/3)` (the familiar lightest-4 / darkest-4 at N=12). `checkContract` reports pass/fail, the worst pair, and every failing pair — it never mutates the palette. Locks are sacred: if a pinned brand color can't meet AA at its step, gosfuig tells you which pairs fail and by how much rather than "fixing" it.
@@ -82,9 +131,46 @@ The accessibility contract is: the **darkest K** steps, used as foreground text,
 ### Export
 
 ```ts
-toW3CTokens(palette);                          // OKLCH components + hex fallback (default)
-toW3CTokens(palette, { colorSpace: 'srgb' });  // hex strings only
+toW3CTokens(palette); // OKLCH components + hex fallback (default)
+toW3CTokens(palette, { colorSpace: 'srgb' }); // hex strings only
 ```
+
+#### Shaping the emitted tree
+
+What the tokens are **called** and how they **nest** is separate from what they are. Reshape only — no token is invented, aliased, or given a meaning; the colors are byte-for-byte the same whatever shape you pick. It is all plain data, so it lives in the config file:
+
+```json
+{
+  "export": {
+    "prefix": "color",
+    "groups": { "signal blue": "brand" },
+    "steps": { "25": "lightest" },
+    "slug": "kebab",
+    "flatten": false,
+    "separator": "-"
+  }
+}
+```
+
+| field       | effect                                                                  |
+| ----------- | ----------------------------------------------------------------------- |
+| `prefix`    | wrapping group(s): `"color"` → `color.brand.500`. A string or an array. |
+| `groups`    | rename family → token group, applied before slugging                    |
+| `steps`     | rename step → token name, applied before slugging                       |
+| `slug`      | `kebab` (default), `camel`, `snake`, `none`                             |
+| `flatten`   | one level of joined keys (`color-brand-500`) instead of nested groups   |
+| `separator` | joiner for `flatten`, and for the `kebab` style. Default `-`            |
+
+**Names are made safe by default.** The default `kebab` style is what turns a family called `signal blue` into `signal-blue` — a group key with a space in it is legal DTCG but breaks CSS variable names, Tailwind keys and Figma variable paths. `slug: "none"` preserves your spacing and case, but still strips `.`, `{` and `}`, since those break `{group.token}` reference resolution.
+
+**Collisions are refused, never silently merged.** If two families would emit the same name, the export fails and says which two:
+
+```
+gosfuig: token name collision — "signal blue.25" and "Signal-Blue.25" both emit as
+"signal-blue-25". Rename one, or use a different slug style.
+```
+
+CLI flags override the config block, since a flag is the more specific instruction — so `--srgb` wins over `"colorSpace": "oklch"`.
 
 `renderDashboard(palette)` returns a self-contained HTML page with each family's swatch strip and full pairwise contrast grid.
 
@@ -94,13 +180,28 @@ toW3CTokens(palette, { colorSpace: 'srgb' });  // hex strings only
 gosfuig <config> [options]
 ```
 
-Resolves a palette spec, prints the contract summary, and writes `tokens.json` (and an HTML dashboard) to an output directory. The config is a `.json` PaletteSpec, or a `.js`/`.mjs` module whose default export is a PaletteSpec (this form can use `seedFamily` and curve builders).
+Resolves a palette spec, prints the contract summary, and writes `tokens.json` (and an HTML dashboard) to an output directory. The config is a `.json` PaletteSpec, or a `.js`/`.mjs` module whose default export is a PaletteSpec. Both forms are equally expressive — curves are data, so JSON carries them too; the module form is for when you want `seedFamily()` to compute the spec for you. Either way the config is validated before it reaches the engine, and a malformed one exits 1 with every problem located.
 
 ```sh
 gosfuig palette.config.mjs -o tokens        # emit to ./tokens
 gosfuig palette.json --srgb --no-dashboard  # hex-only tokens, no dashboard
 gosfuig palette.json --strict               # exit 1 if any family fails the contract (CI)
+gosfuig palette.config.mjs --emit-config    # also freeze the spec to palette.config.json
 ```
+
+## The config file
+
+One format, three producers and three consumers: the studio writes it, the CLI reads and writes it, and you can hand-author it. It is a `PaletteSpec` in JSON, plus two file-level fields:
+
+- `$version` — the config format version. A config newer than your build is rejected rather than half-read.
+- `$extensions` — vendor data keyed by owner, which the engine carries and never reads. The studio stores its authoring state (which families are "from color", whether chroma is auto) under `"gosfuig.studio"`, so a session round-trips exactly while the CLI reads the same file and ignores what it doesn't own.
+
+```sh
+# studio → save config ↓ → palette.config.json
+gosfuig palette.config.json -o tokens --strict
+```
+
+A config with no studio extension still loads into the studio; the state is reconstructed from the spec itself. That reconstruction is faithful in color but not always in authoring shape — a family pinned by a lone lock comes back as "from color", and a hue torsion authored on a seed family comes back centered rather than pivoted on the seed's step.
 
 ## Studio
 
@@ -111,7 +212,9 @@ npm run dev          # dev server
 npm run studio:build # single-file HTML into dist-studio/
 ```
 
-Each family has a hue source — **from color** (a base-color picker drives the hue and, by default, the chroma; the color is pinned at a chosen step) or **free hue** (a hue slider). A per-family curves panel exposes lightness, chroma shape, and hue torsion; a palette-wide control sets the step count. Export W3C tokens from the toolbar.
+Each family has a hue source — **from color** (a base-color picker drives the hue and, by default, the chroma; the color is pinned at a chosen step) or **free hue** (a hue slider). A per-family curves panel exposes lightness, chroma shape, and hue torsion; a palette-wide control sets the step count.
+
+The toolbar exports W3C tokens, and saves or loads a `palette.config.json` — the same file the CLI takes, so a session hands off to CI directly. The session is also kept in `localStorage`, so a reload doesn't discard an afternoon of slider work; **reset** clears it back to the demo palette.
 
 ## Development
 

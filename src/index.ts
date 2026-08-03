@@ -11,6 +11,7 @@
 // Color engine
 export {
   parse,
+  normalize,
   isInGamut,
   gamutClamp,
   toHex,
@@ -20,17 +21,17 @@ export {
 } from './color/oklch.js';
 
 // Contrast (WCAG 2.1 + APCA)
-export {
-  wcag,
-  apca,
-  evaluate,
-  type ColorIn,
-  type ContrastVerdict,
-} from './color/contrast.js';
+export { wcag, apca, evaluate, type ColorIn, type ContrastVerdict } from './color/contrast.js';
 
-// Curves
+// Curves — declarative (CurveSpec, what a config stores) and compiled (Curve,
+// what the engine evaluates). `compile` is the bridge between them.
 export {
   type Curve,
+  type CurveSpec,
+  type CurveKind,
+  CURVE_KINDS,
+  compile,
+  isCurveSpec,
   constant,
   linear,
   hueRamp,
@@ -40,7 +41,29 @@ export {
   ramp,
   defaultLightness,
   defaultChroma,
+  defaultLightnessSpec,
+  defaultChromaSpec,
 } from './curves.js';
+
+// Spec validation (untrusted input -> PaletteSpec, or located errors)
+export {
+  validatePaletteSpec,
+  validateFamilySpec,
+  parsePaletteSpec,
+  formatSpecErrors,
+  CONFIG_VERSION,
+  type SpecError,
+  type SpecResult,
+} from './spec.js';
+
+// The config file format (one reader and one writer, shared by CLI and studio)
+export {
+  stringifyConfig,
+  parseConfig,
+  normalizeConfig,
+  readExtension,
+  withExtension,
+} from './config.js';
 
 // Step scales / naming
 export {
@@ -58,6 +81,7 @@ export {
 export {
   resolveFamily,
   seedFamily,
+  chromaLoss,
   type FamilySpec,
   type SeedSpec,
   type Swatch,
@@ -72,6 +96,11 @@ export {
   checkContract,
   contrastMatrix,
   summarizeContract,
+  familyNotes,
+  summarizeNotes,
+  hasNotableLoss,
+  MINOR_CHROMA_LOSS,
+  type FamilyNotes,
   contractRegion,
   LIGHTEST_4,
   DARKEST_4,
@@ -81,5 +110,16 @@ export {
 } from './validate.js';
 
 // Exports
-export { toW3CTokens, type W3CExportOptions } from './export/w3c.js';
+export { toW3CTokens, type W3CExportOptions, type ColorToken } from './export/w3c.js';
+
+// Token shape: naming, grouping and nesting of the emitted tree (reshape only)
+export {
+  slugify,
+  shapeEntries,
+  assemble,
+  resolveShape,
+  SLUG_STYLES,
+  type TokenShape,
+  type SlugStyle,
+} from './export/shape.js';
 export { renderDashboard } from './dashboard/render.js';

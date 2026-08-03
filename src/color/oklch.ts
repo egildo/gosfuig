@@ -32,7 +32,11 @@ export function parse(input: string | Oklch): Oklch {
   return normalize({ l: o.l, c: o.c, h: o.h ?? 0 });
 }
 
-function normalize(o: Oklch): Oklch {
+/**
+ * Put an OKLCH triple in canonical range: L into [0,1], C non-negative, H wrapped
+ * into [0,360). Says nothing about whether the result is displayable.
+ */
+export function normalize(o: Oklch): Oklch {
   const h = Number.isFinite(o.h) ? ((o.h % 360) + 360) % 360 : 0;
   return { l: clamp(o.l, 0, 1), c: Math.max(0, o.c), h };
 }

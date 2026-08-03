@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Build library
+        run: npm run build
+
+      - name: Build studio
+        run: npm run studio:build
+
+      - name: CLI smoke test — plain JSON config, with an export block
+        run: |
+          node dist/bin.js examples/palette.config.json -o /tmp/gosfuig-json
+          node -e "
+            const t = require('/tmp/gosfuig-json/tokens.json');
+            if (!t.color?.brand?.['500']) throw new Error('export block was not applied');
+          "
+
+      - name: CLI smoke test — module config, resolved by package self-reference
+        run: node dist/bin.js examples/palette.config.mjs -o /tmp/gosfuig-mjs
+
+      - name: CLI smoke test — --emit-config freezes a module config to JSON, and it round-trips
+        run: |
+          node dist/bin.js examples/palette.config.mjs -o /tmp/gosfuig-rt --emit-config --no-dashboard
+          node dist/bin.js /tmp/gosfuig-rt/palette.config.json -o /tmp/gosfuig-rt2 --no-dashboard
+          diff /tmp/gosfuig-rt/tokens.json /tmp/gosfuig-rt2/tokens.json
+
+      - name: CLI smoke test — --strict exits 1 on a failing family
+        run: |
+          if node dist/bin.js examples/palette.config.json -o /tmp/gosfuig-strict --strict; then
+            echo "expected --strict to exit 1 (the demo pins a failing brand color)" >&2
+            exit 1
+          fi
