@@ -16,7 +16,8 @@ import { toHex, toRgb255, parse, type Oklch } from './oklch.js';
 export type ColorIn = string | Oklch;
 
 const hexOf = (c: ColorIn): string => (typeof c === 'string' ? c : toHex(c));
-const bytesOf = (c: ColorIn): [number, number, number] => toRgb255(typeof c === 'string' ? parse(c) : c);
+const bytesOf = (c: ColorIn): [number, number, number] =>
+  toRgb255(typeof c === 'string' ? parse(c) : c);
 
 /** WCAG 2.1 contrast ratio, 1..21. */
 export function wcag(fg: ColorIn, bg: ColorIn): number {

@@ -1,19 +1,36 @@
 /**
  * Curves: pure functions of t in [0,1] (t=0 lightest step, t=1 darkest).
  *
- * The whole family is described by three of these — lightness, chroma, hue —
- * plus locks. Keeping them as plain (t) => number functions means a designer
- * can drop in any easing they like; the builders below cover the common cases.
+ * Two representations, and the distinction is load-bearing:
+ *
+ *   CurveSpec — plain data, e.g. { kind: 'ramp', max: 0.98, min: 0.18 }. This
+ *     is what a FamilySpec carries and what a config file stores. Being data,
+ *     it survives JSON round-trips, which is the whole point: a palette you
+ *     build in the studio can be written to disk, read by the CLI, and handed
+ *     to CI, unchanged.
+ *
+ *   Curve — the compiled closure, (t) => number, produced by `compile`. This is
+ *     what the engine evaluates. It is an implementation detail; nothing that
+ *     crosses a file or process boundary is ever a Curve.
+ *
+ * The builders below are both: the public constructors of the compiled form,
+ * and the interpreters `compile` dispatches to.
  */
 export type Curve = (t: number) => number;
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 
 /** Constant value across the whole ramp (e.g. a fixed hue). */
-export const constant = (v: number): Curve => () => v;
+export const constant =
+  (v: number): Curve =>
+  () =>
+    v;
 
 /** Linear interpolation from `from` (t=0) to `to` (t=1). */
-export const linear = (from: number, to: number): Curve => (t) => from + (to - from) * clamp01(t);
+export const linear =
+  (from: number, to: number): Curve =>
+  (t) =>
+    from + (to - from) * clamp01(t);
 
 /**
  * Hue torsion: a linear hue sweep from `start` (t=0, lightest) to `end` (t=1,
@@ -29,8 +46,10 @@ export const hueRamp = (start: number, end: number): Curve => linear(start, end)
  *  gamma > 1  -> steps bunch toward the `from` end (finer light shades)
  *  gamma < 1  -> steps bunch toward the `to` end (finer dark shades)
  */
-export const gamma = (from: number, to: number, g = 1): Curve => (t) =>
-  from + (to - from) * Math.pow(clamp01(t), g);
+export const gamma =
+  (from: number, to: number, g = 1): Curve =>
+  (t) =>
+    from + (to - from) * Math.pow(clamp01(t), g);
 
 /**
  * Chroma bump: low at both ends, peaking at `tPeak`. Light tints and dark
@@ -47,7 +66,9 @@ export function bump(opts: {
   /** Chroma floor at the dark end (t=1). */
   dark?: number;
 }): Curve {
-  const { peak, tPeak = 0.6, light = 0.02, dark = 0.05 } = opts;
+  // Defaults deliberately match `defaultChroma` and `bumpPeakFor`, so that
+  // `bump({ peak })` reproduces the documented default chroma policy exactly.
+  const { peak, tPeak = 0.6, light = 0.025, dark = 0.05 } = opts;
   const tp = clamp01(tPeak);
   return (t) => {
     const x = clamp01(t);
@@ -125,4 +146,73 @@ export function ramp(opts: { max: number; min: number; gamma?: number; sCurve?: 
 export const defaultLightness = (): Curve => ramp({ max: 0.98, min: 0.18, gamma: 1, sCurve: 0.13 });
 
 /** Sensible default chroma policy: vivid mid-tones, soft ends. */
-export const defaultChroma = (peak = 0.14): Curve => bump({ peak, tPeak: 0.6, light: 0.025, dark: 0.05 });
+export const defaultChroma = (peak = 0.14): Curve =>
+  bump({ peak, tPeak: 0.6, light: 0.025, dark: 0.05 });
+
+// ---------------------------------------------------------------------------
+// The declarative form
+// ---------------------------------------------------------------------------
+
+/**
+ * A curve as plain, serializable data. One variant per builder above, tagged by
+ * `kind`. Optional fields mean "use the builder's default", so a spec stays as
+ * small as the author wrote it and round-trips without acquiring noise.
+ */
+export type CurveSpec =
+  | { kind: 'constant'; value: number }
+  | { kind: 'linear'; from: number; to: number }
+  | { kind: 'gamma'; from: number; to: number; gamma?: number }
+  | { kind: 'hueRamp'; start: number; end: number }
+  | { kind: 'ramp'; max: number; min: number; gamma?: number; sCurve?: number }
+  | { kind: 'bump'; peak: number; tPeak?: number; light?: number; dark?: number };
+
+/** Every `kind` a CurveSpec may carry. Exported so validators can list them. */
+export const CURVE_KINDS = ['constant', 'linear', 'gamma', 'hueRamp', 'ramp', 'bump'] as const;
+
+export type CurveKind = (typeof CURVE_KINDS)[number];
+
+/** Structural check: does this look like a CurveSpec rather than a plain number? */
+export function isCurveSpec(v: unknown): v is CurveSpec {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'kind' in v &&
+    (CURVE_KINDS as readonly string[]).includes((v as { kind: unknown }).kind as string)
+  );
+}
+
+/** Interpret a CurveSpec into the compiled closure the engine evaluates. */
+export function compile(spec: CurveSpec): Curve {
+  switch (spec.kind) {
+    case 'constant':
+      return constant(spec.value);
+    case 'linear':
+      return linear(spec.from, spec.to);
+    case 'gamma':
+      return gamma(spec.from, spec.to, spec.gamma);
+    case 'hueRamp':
+      return hueRamp(spec.start, spec.end);
+    case 'ramp':
+      return ramp(spec);
+    case 'bump':
+      return bump(spec);
+  }
+}
+
+/** The default lightness ramp, as data. Equivalent to `defaultLightness()`. */
+export const defaultLightnessSpec = (): CurveSpec => ({
+  kind: 'ramp',
+  max: 0.98,
+  min: 0.18,
+  gamma: 1,
+  sCurve: 0.13,
+});
+
+/** The default chroma policy, as data. Equivalent to `defaultChroma(peak)`. */
+export const defaultChromaSpec = (peak = 0.14): CurveSpec => ({
+  kind: 'bump',
+  peak,
+  tPeak: 0.6,
+  light: 0.025,
+  dark: 0.05,
+});

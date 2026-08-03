@@ -10,8 +10,8 @@ const palette = resolvePalette({
 describe('toW3CTokens', () => {
   it('emits a DTCG color group per family', () => {
     const out = toW3CTokens(palette);
-    expect(out.blue!.$type).toBe('color');
-    expect(Object.keys(out.blue!)).toContain('500');
+    expect((out.blue as any).$type).toBe('color');
+    expect(Object.keys(out.blue as object)).toContain('500');
   });
 
   it('stores the oklch color object with a hex fallback by default', () => {

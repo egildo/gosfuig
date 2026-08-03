@@ -1,13 +1,13 @@
 {
   "name": "gosfuig",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Perceptual (OKLCH) design-system palette generator with contrast validation and W3C token export",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "gosfuig": "./dist/cli.js"
+    "gosfuig": "./dist/bin.js"
   },
   "exports": {
     ".": {
@@ -40,8 +40,8 @@
     "test:watch": "vitest",
     "check": "tsc -p tsconfig.json --noEmit && vitest run && eslint .",
     "lint": "eslint .",
-    "format": "prettier --write \"src/**/*.{ts,css}\" \"examples/**/*.ts\" \"*.{json,md}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,css}\" \"examples/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.{ts,css}\" \"test/**/*.ts\" \"examples/**/*.{ts,mjs,json}\" \"*.{json,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,css}\" \"test/**/*.ts\" \"examples/**/*.{ts,mjs,json}\"",
     "demo": "tsx examples/run.ts",
     "dev": "vite",
     "studio:build": "vite build"

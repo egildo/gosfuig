@@ -1,0 +1,13 @@
+{
+  "name": "gosfuig demo (plain JSON)",
+  "export": {
+    "prefix": "color",
+    "slug": "kebab",
+    "groups": { "blue": "brand" }
+  },
+  "families": [
+    { "name": "blue", "hue": 259, "locks": { "700": "#1d4ed8" } },
+    { "name": "green", "hue": 150 },
+    { "name": "gray", "hue": 260, "chroma": 0.01 }
+  ]
+}
