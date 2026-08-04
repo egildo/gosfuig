@@ -69,7 +69,9 @@ describe('renderDashboard', () => {
       resolvePalette({ families: [{ name: 'blue', hue: 259, locks: { '700': '#1d4ed8' } }] }),
     );
     expect(fail).toContain('contract FAIL');
-    expect(fail).toContain('worst 700/200 = 3.8');
+    // 3.78 since the ramp routes chroma and hue through the pinned color as
+    // well as lightness; it was 3.80 when only lightness was routed.
+    expect(fail).toContain('worst 700/200 = 3.78');
   });
 
   it('escapes HTML in the palette and family names', () => {

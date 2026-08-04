@@ -1,0 +1,637 @@
+{
+  "$version": 1,
+  "name": "Palette Sardegna",
+  "families": [
+    {
+      "name": "busachi red",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 33.189386,
+        "end": 25.189386
+      },
+      "chroma": 0.242712,
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.955,
+        "min": 0.205,
+        "gamma": 1,
+        "sCurve": 0.13
+      },
+      "colors": [
+        {
+          "name": "Busachi Red",
+          "alias": "red",
+          "value": {
+            "l": 0.574601,
+            "c": 0.212639,
+            "h": 29.553023
+          },
+          "step": "400"
+        }
+      ]
+    },
+    {
+      "name": "monreale yellow",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 105.488672,
+        "end": 85.488672
+      },
+      "chroma": {
+        "kind": "bump",
+        "peak": 0.07,
+        "tPeak": 0.4,
+        "light": 0.025,
+        "dark": 0.06
+      },
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.945,
+        "min": 0.24,
+        "gamma": 0.8,
+        "sCurve": 0.1
+      },
+      "colors": [
+        {
+          "name": "Monreale Yellow",
+          "alias": "yellow",
+          "value": {
+            "l": 0.897766,
+            "c": 0.185652,
+            "h": 98.215945
+          },
+          "step": "300"
+        }
+      ]
+    },
+    {
+      "name": "carbonia black",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 270.648411,
+        "end": 246.648411
+      },
+      "chroma": {
+        "kind": "bump",
+        "peak": 0.04,
+        "tPeak": 0.5,
+        "light": 0.035,
+        "dark": 0.07
+      },
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.995,
+        "min": 0.19,
+        "gamma": 0.75,
+        "sCurve": 0.1
+      },
+      "colors": [
+        {
+          "name": "Carbonia Black",
+          "alias": "ink",
+          "value": {
+            "l": 0.205022,
+            "c": 0.02001,
+            "h": 248.830229
+          },
+          "step": "900"
+        }
+      ]
+    },
+    {
+      "name": "bosa magenta",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 350.757901,
+        "end": 340.757901
+      },
+      "chroma": {
+        "kind": "bump",
+        "peak": 0.22,
+        "tPeak": 0.65,
+        "light": 0.045,
+        "dark": 0.05
+      },
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.95,
+        "min": 0.19,
+        "gamma": 0.9,
+        "sCurve": 0.4
+      },
+      "colors": [
+        {
+          "name": "Bosa Magenta",
+          "alias": "magenta",
+          "value": {
+            "l": 0.594075,
+            "c": 0.229944,
+            "h": 347.121538
+          },
+          "step": "300"
+        }
+      ]
+    },
+    {
+      "name": "goloritze teal",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 194.994904,
+        "end": 172.994904
+      },
+      "chroma": {
+        "kind": "bump",
+        "peak": 0.195,
+        "tPeak": 0.35,
+        "light": 0.035,
+        "dark": 0.05
+      },
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.955,
+        "min": 0.22,
+        "gamma": 0.85,
+        "sCurve": 0.37
+      },
+      "colors": [
+        {
+          "name": "Goloritzè Teal",
+          "alias": "teal",
+          "value": {
+            "l": 0.553719,
+            "c": 0.098617,
+            "h": 182.994904
+          },
+          "step": "500"
+        }
+      ]
+    },
+    {
+      "name": "chia orange",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 43.463245,
+        "end": 73.463245
+      },
+      "chroma": {
+        "kind": "bump",
+        "peak": 0.245,
+        "tPeak": 0.45,
+        "light": 0.055,
+        "dark": 0.065
+      },
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.97,
+        "min": 0.18,
+        "gamma": 1,
+        "sCurve": 0.26
+      },
+      "colors": [
+        {
+          "name": "Chia Orange",
+          "alias": "orange",
+          "value": {
+            "l": 0.680731,
+            "c": 0.159913,
+            "h": 59.826881
+          },
+          "step": "500"
+        }
+      ]
+    },
+    {
+      "name": "la pelosa pink",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 29.788924,
+        "end": -6.211076
+      },
+      "chroma": {
+        "kind": "bump",
+        "peak": 0.19,
+        "tPeak": 0.4,
+        "light": 0.055,
+        "dark": 0.08
+      },
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.96,
+        "min": 0.215,
+        "gamma": 1.1,
+        "sCurve": 0.18
+      },
+      "colors": [
+        {
+          "name": "La Pelosa Pink",
+          "alias": "pink",
+          "value": {
+            "l": 0.834329,
+            "c": 0.092876,
+            "h": 13.425287
+          },
+          "step": "400"
+        }
+      ]
+    },
+    {
+      "name": "la maddalena blue",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 275.70607,
+        "end": 242.70607
+      },
+      "chroma": 0.077814,
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.945,
+        "min": 0.165,
+        "gamma": 1.45,
+        "sCurve": 0.13
+      },
+      "colors": [
+        {
+          "name": "La Maddalena Blue",
+          "alias": "blue",
+          "value": {
+            "l": 0.333155,
+            "c": 0.076744,
+            "h": 257.70607
+          },
+          "step": "500"
+        }
+      ]
+    },
+    {
+      "name": "bovale purple",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 288.475091,
+        "end": 319.475091
+      },
+      "chroma": {
+        "kind": "bump",
+        "peak": 0.24,
+        "tPeak": 0.5,
+        "light": 0.09,
+        "dark": 0.05
+      },
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.9,
+        "min": 0.195,
+        "gamma": 1.15,
+        "sCurve": 0
+      },
+      "colors": [
+        {
+          "name": "Bovale Purple",
+          "alias": "violet",
+          "value": {
+            "l": 0.284326,
+            "c": 0.116896,
+            "h": 311.020546
+          },
+          "step": "700"
+        }
+      ]
+    },
+    {
+      "name": "murta green",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 93.237561,
+        "end": 153.237561
+      },
+      "chroma": {
+        "kind": "bump",
+        "peak": 0.19,
+        "tPeak": 0.35,
+        "light": 0.02,
+        "dark": 0.065
+      },
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.97,
+        "min": 0.165,
+        "gamma": 0.65,
+        "sCurve": 0.47
+      },
+      "colors": [
+        {
+          "name": "Murta Green",
+          "alias": "green",
+          "value": {
+            "l": 0.469988,
+            "c": 0.088801,
+            "h": 120.510288
+          },
+          "step": "400"
+        }
+      ]
+    },
+    {
+      "name": "murdegu white",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 98.260153,
+        "end": 88.260153
+      },
+      "chroma": {
+        "kind": "bump",
+        "peak": 0,
+        "tPeak": 0.2,
+        "light": 0,
+        "dark": 0
+      },
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.995,
+        "min": 0.08,
+        "gamma": 1.6,
+        "sCurve": 0
+      },
+      "colors": [
+        {
+          "name": "Murdegu White",
+          "alias": "neutral",
+          "value": {
+            "l": 0.975522,
+            "c": 0.006697,
+            "h": 97.351062
+          },
+          "step": "50"
+        }
+      ]
+    },
+    {
+      "name": "nuragus lime",
+      "hue": {
+        "kind": "hueRamp",
+        "start": 93.919704,
+        "end": 153.919704
+      },
+      "chroma": {
+        "kind": "bump",
+        "peak": 0.092,
+        "tPeak": 0.2,
+        "light": 0.04,
+        "dark": 0.1
+      },
+      "lightness": {
+        "kind": "ramp",
+        "max": 0.98,
+        "min": 0.185,
+        "gamma": 1,
+        "sCurve": 0.18
+      },
+      "colors": [
+        {
+          "name": "Nuragus Lime",
+          "alias": "lime",
+          "value": {
+            "l": 0.833644,
+            "c": 0.189954,
+            "h": 115.737886
+          },
+          "step": "300"
+        }
+      ]
+    }
+  ],
+  "$extensions": {
+    "gosfuig.studio": {
+      "steps": 12,
+      "families": [
+        {
+          "name": "busachi red",
+          "mode": "seed",
+          "hue": 29.6,
+          "seed": "#da291c",
+          "seedStep": 5,
+          "chromaAuto": true,
+          "hueTorsion": -8,
+          "lightMax": 0.955,
+          "lightMin": 0.205,
+          "gamma": 1,
+          "sCurve": 0.13,
+          "chroma": 0.21,
+          "tPeak": 0.6,
+          "chromaLight": 0.025,
+          "chromaDark": 0.05,
+          "seedName": "Busachi Red",
+          "seedAlias": "red"
+        },
+        {
+          "name": "monreale yellow",
+          "mode": "seed",
+          "hue": 98.2,
+          "seed": "#fedd00",
+          "seedStep": 4,
+          "chromaAuto": false,
+          "hueTorsion": -20,
+          "lightMax": 0.945,
+          "lightMin": 0.24,
+          "gamma": 0.8,
+          "sCurve": 0.1,
+          "chroma": 0.07,
+          "tPeak": 0.4,
+          "chromaLight": 0.025,
+          "chromaDark": 0.06,
+          "seedName": "Monreale Yellow",
+          "seedAlias": "yellow"
+        },
+        {
+          "name": "carbonia black",
+          "mode": "seed",
+          "hue": 248.8,
+          "seed": "#101820",
+          "seedStep": 10,
+          "chromaAuto": false,
+          "hueTorsion": -24,
+          "lightMax": 0.995,
+          "lightMin": 0.19,
+          "gamma": 0.75,
+          "sCurve": 0.1,
+          "chroma": 0.04,
+          "tPeak": 0.5,
+          "chromaLight": 0.035,
+          "chromaDark": 0.07,
+          "seedName": "Carbonia Black",
+          "seedAlias": "ink"
+        },
+        {
+          "name": "bosa magenta",
+          "mode": "seed",
+          "hue": 347.1,
+          "seed": "#d62598",
+          "seedStep": 4,
+          "chromaAuto": false,
+          "hueTorsion": -10,
+          "lightMax": 0.95,
+          "lightMin": 0.19,
+          "gamma": 0.9,
+          "sCurve": 0.4,
+          "chroma": 0.22,
+          "tPeak": 0.65,
+          "chromaLight": 0.045,
+          "chromaDark": 0.05,
+          "seedName": "Bosa Magenta",
+          "seedAlias": "magenta"
+        },
+        {
+          "name": "goloritze teal",
+          "mode": "seed",
+          "hue": 183,
+          "seed": "#008578",
+          "seedStep": 6,
+          "chromaAuto": false,
+          "hueTorsion": -22,
+          "lightMax": 0.955,
+          "lightMin": 0.22,
+          "gamma": 0.85,
+          "sCurve": 0.37,
+          "chroma": 0.195,
+          "tPeak": 0.35,
+          "chromaLight": 0.035,
+          "chromaDark": 0.05,
+          "seedName": "Goloritzè Teal",
+          "seedAlias": "teal"
+        },
+        {
+          "name": "chia orange",
+          "mode": "seed",
+          "hue": 59.8,
+          "seed": "#de7c00",
+          "seedStep": 6,
+          "chromaAuto": false,
+          "hueTorsion": 30,
+          "lightMax": 0.97,
+          "lightMin": 0.18,
+          "gamma": 1,
+          "sCurve": 0.26,
+          "chroma": 0.245,
+          "tPeak": 0.45,
+          "chromaLight": 0.055,
+          "chromaDark": 0.065,
+          "seedName": "Chia Orange",
+          "seedAlias": "orange"
+        },
+        {
+          "name": "la pelosa pink",
+          "mode": "seed",
+          "hue": 13.4,
+          "seed": "#ffb0b7",
+          "seedStep": 5,
+          "chromaAuto": false,
+          "hueTorsion": -36,
+          "lightMax": 0.96,
+          "lightMin": 0.215,
+          "gamma": 1.1,
+          "sCurve": 0.18,
+          "chroma": 0.19,
+          "tPeak": 0.4,
+          "chromaLight": 0.055,
+          "chromaDark": 0.08,
+          "seedName": "La Pelosa Pink",
+          "seedAlias": "pink"
+        },
+        {
+          "name": "la maddalena blue",
+          "mode": "seed",
+          "hue": 257.7,
+          "seed": "#1b365d",
+          "seedStep": 6,
+          "chromaAuto": true,
+          "hueTorsion": -33,
+          "lightMax": 0.945,
+          "lightMin": 0.165,
+          "gamma": 1.45,
+          "sCurve": 0.13,
+          "chroma": 0.147,
+          "tPeak": 0.6,
+          "chromaLight": 0.025,
+          "chromaDark": 0.05,
+          "seedName": "La Maddalena Blue",
+          "seedAlias": "blue"
+        },
+        {
+          "name": "bovale purple",
+          "mode": "seed",
+          "hue": 311,
+          "seed": "#3c1053",
+          "seedStep": 8,
+          "chromaAuto": false,
+          "hueTorsion": 31,
+          "lightMax": 0.9,
+          "lightMin": 0.195,
+          "gamma": 1.15,
+          "sCurve": 0,
+          "chroma": 0.24,
+          "tPeak": 0.5,
+          "chromaLight": 0.09,
+          "chromaDark": 0.05,
+          "seedName": "Bovale Purple",
+          "seedAlias": "violet"
+        },
+        {
+          "name": "murta green",
+          "mode": "seed",
+          "hue": 120.5,
+          "seed": "#546223",
+          "seedStep": 5,
+          "chromaAuto": false,
+          "hueTorsion": 60,
+          "lightMax": 0.97,
+          "lightMin": 0.165,
+          "gamma": 0.65,
+          "sCurve": 0.47,
+          "chroma": 0.19,
+          "tPeak": 0.35,
+          "chromaLight": 0.02,
+          "chromaDark": 0.065,
+          "seedName": "Murta Green",
+          "seedAlias": "green"
+        },
+        {
+          "name": "murdegu white",
+          "mode": "seed",
+          "hue": 97.4,
+          "seed": "#f8f7f2",
+          "seedStep": 1,
+          "chromaAuto": false,
+          "hueTorsion": -10,
+          "lightMax": 0.995,
+          "lightMin": 0.08,
+          "gamma": 1.6,
+          "sCurve": 0,
+          "chroma": 0,
+          "tPeak": 0.2,
+          "chromaLight": 0,
+          "chromaDark": 0,
+          "seedName": "Murdegu White",
+          "seedAlias": "neutral"
+        },
+        {
+          "name": "nuragus lime",
+          "mode": "seed",
+          "hue": 115.7,
+          "seed": "#c4d601",
+          "seedStep": 4,
+          "chromaAuto": false,
+          "hueTorsion": 60,
+          "lightMax": 0.98,
+          "lightMin": 0.185,
+          "gamma": 1,
+          "sCurve": 0.18,
+          "chroma": 0.092,
+          "tPeak": 0.2,
+          "chromaLight": 0.04,
+          "chromaDark": 0.1,
+          "seedName": "Nuragus Lime",
+          "seedAlias": "lime"
+        }
+      ]
+    }
+  }
+}

@@ -5,9 +5,9 @@
  *   gosfuig <config> [options]
  *
  * The config is a palette spec:
- *   - .json  — a plain PaletteSpec (hue/chroma numbers, locks; no curves)
- *   - .js/.mjs — an ES module whose default export is a PaletteSpec; this form
- *     can use seedFamily(), curve builders, and hue/chroma functions.
+ *   - .json  — a PaletteSpec. Curves are data, so JSON expresses everything.
+ *   - .js/.mjs — an ES module whose default export is a PaletteSpec, for when
+ *     you want seedFamily() and the curve builders to compute it for you.
  *
  * This module is side-effect free: it parses, runs, and returns an exit code.
  * The executable entry point is `bin.ts`, which is the only thing that touches
@@ -24,6 +24,13 @@ import {
   renderDashboard,
   toW3CTokens,
   parsePaletteSpec,
+  applyTemplate,
+  findTemplate,
+  isTemplate,
+  templateNames,
+  BUILTIN_TEMPLATES,
+  templateFromSpec,
+  type Template,
   parseConfig,
   stringifyConfig,
   type PaletteSpec,
@@ -38,6 +45,12 @@ export interface Opts {
   strict: boolean;
   /** Also write the normalized spec back out as `palette.config.json`. */
   emitConfig: boolean;
+  /** Template to apply as a base: a built-in name, or a path to a JSON file. */
+  template?: string;
+  /** List the available templates and exit. */
+  listTemplates: boolean;
+  /** Also write the config's reusable half out as a template file. */
+  emitTemplate?: string;
   /** `-h` / `--help` was passed. */
   help: boolean;
   /** Usage errors collected while parsing (unknown options, missing values). */
@@ -69,6 +82,10 @@ Options:
   --srgb              Export hex-only tokens instead of OKLCH + hex
   --no-dashboard      Skip writing dashboard.html
   --emit-config       Also write the normalized spec as palette.config.json
+  --template <t>      Apply a house style as a base: a built-in name or a .json
+                      file. The config always wins where the two disagree.
+  --templates         List the built-in templates and exit
+  --emit-template <n> Also write this config's reusable half as <n>.template.json
   --strict            Exit 1 if any family fails the contract (CI-friendly)
   -h, --help          Show this help
 
@@ -85,6 +102,7 @@ export function parseArgs(argv: string[]): Opts {
     dashboard: true,
     strict: false,
     emitConfig: false,
+    listTemplates: false,
     help: false,
     errors: [],
   };
@@ -107,6 +125,21 @@ export function parseArgs(argv: string[]): Opts {
       case '--emit-config':
         o.emitConfig = true;
         break;
+      case '--template': {
+        const value = argv[++i];
+        if (value == null) o.errors.push(`gosfuig: ${a} needs a name or a path`);
+        else o.template = value;
+        break;
+      }
+      case '--templates':
+        o.listTemplates = true;
+        break;
+      case '--emit-template': {
+        const value = argv[++i];
+        if (value == null) o.errors.push(`gosfuig: ${a} needs a name for the template`);
+        else o.emitTemplate = value;
+        break;
+      }
       case '--strict':
         o.strict = true;
         break;
@@ -155,6 +188,36 @@ export async function loadSpec(path: string): Promise<PaletteSpec> {
 }
 
 /**
+ * Resolve `--template`: a built-in name, or a path to a JSON template file.
+ * A name that is neither is an error naming what is available.
+ */
+export function loadTemplate(nameOrPath: string): Template {
+  const builtin = findTemplate(nameOrPath);
+  if (builtin) return builtin;
+
+  if (!nameOrPath.endsWith('.json')) {
+    throw new Error(
+      `gosfuig: unknown template "${nameOrPath}" (built-ins: ${templateNames().join(', ')}; ` +
+        `or pass a path to a .json file)`,
+    );
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(resolve(nameOrPath), 'utf8'));
+  } catch (err) {
+    throw new Error(`gosfuig: cannot read template ${nameOrPath} — ${(err as Error).message}`);
+  }
+  if (!isTemplate(raw)) {
+    throw new Error(
+      `gosfuig: ${nameOrPath} is not a template ` +
+        `(needs a "name", and only name/description/steps/lightness/chroma/export)`,
+    );
+  }
+  return raw;
+}
+
+/**
  * Run the CLI and return a process exit code.
  *   0 — success
  *   1 — a thrown error, or --strict with at least one failing family
@@ -165,6 +228,14 @@ export async function runCli(argv: string[], io: CliIO = consoleIO): Promise<num
 
   if (opts.help) {
     io.log(helpText());
+    return 0;
+  }
+  if (opts.listTemplates) {
+    io.log('Built-in templates:\n');
+    for (const t of BUILTIN_TEMPLATES) {
+      io.log(`  ${t.name.padEnd(10)} ${t.description ?? ''}`);
+    }
+    io.log('\nApply one with --template <name>, or pass a path to your own .json.');
     return 0;
   }
   if (opts.errors.length > 0) {
@@ -182,6 +253,20 @@ export async function runCli(argv: string[], io: CliIO = consoleIO): Promise<num
   } catch (err) {
     io.error(err instanceof Error ? err.message : String(err));
     return 1;
+  }
+
+  if (opts.template !== undefined) {
+    try {
+      spec = applyTemplate(spec, loadTemplate(opts.template));
+      // Re-validate: a template may change the step count, and step NAMES are
+      // scale-dependent ("500" exists on the 12-step scale, not the 16-step
+      // one). Without this the mismatch surfaces as a raw error from inside the
+      // engine instead of a located one naming the color.
+      spec = parsePaletteSpec(spec);
+    } catch (err) {
+      io.error(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
   }
 
   const palette = resolvePalette(spec);
@@ -219,6 +304,14 @@ export async function runCli(argv: string[], io: CliIO = consoleIO): Promise<num
   }
   if (opts.emitConfig) {
     writeFileSync(join(opts.out, 'palette.config.json'), stringifyConfig(spec));
+  }
+  if (opts.emitTemplate !== undefined) {
+    // The reusable half only — curves, step count, export block. Brand colors
+    // are never written into a template.
+    writeFileSync(
+      join(opts.out, `${opts.emitTemplate}.template.json`),
+      JSON.stringify(templateFromSpec(spec, opts.emitTemplate), null, 2) + '\n',
+    );
   }
 
   const failed = results.filter((r) => !r.passes).length;

@@ -13,6 +13,7 @@ export {
   parse,
   normalize,
   isInGamut,
+  isStrictlyInGamut,
   gamutClamp,
   toHex,
   toRgb255,
@@ -56,6 +57,18 @@ export {
   type SpecResult,
 } from './spec.js';
 
+// Templates: the reusable half of a palette, saved under a name
+export {
+  BUILTIN_TEMPLATES,
+  findTemplate,
+  templateNames,
+  applyTemplate,
+  forceTemplate,
+  templateFromSpec,
+  isTemplate,
+  type Template,
+} from './template.js';
+
 // The config file format (one reader and one writer, shared by CLI and studio)
 export {
   stringifyConfig,
@@ -82,6 +95,8 @@ export {
   resolveFamily,
   seedFamily,
   chromaLoss,
+  hueDelta,
+  type NamedColor,
   type FamilySpec,
   type SeedSpec,
   type Swatch,

@@ -1,12 +1,18 @@
 /**
- * Family resolution: a declarative FamilySpec -> 12 named, gamut-safe swatches.
+ * Family resolution: a declarative FamilySpec -> named, gamut-safe swatches.
  *
- * Pipeline per step i (t = i/11):
- *   1. base L from the lightness curve, C from the chroma curve, H from the hue curve
- *   2. apply locks: a locked step pins its EXACT OKLCH (L, C, H)
- *   3. re-smooth lightness through the locks via residual interpolation, so the
- *      value progression passes through pinned colors without kinks
- *   4. gamut-map every swatch (chroma clamp) so the stored OKLCH is displayable
+ * The ramp is a path through OKLCH space, and a family's named colors are
+ * waypoints it must pass through. A branding book gives you the waypoints; this
+ * builds the path.
+ *
+ * Pipeline per step i:
+ *   1. base L from the lightness curve, C from the chroma curve, H from the hue
+ *      curve — the shape of the path before any color pulls it
+ *   2. place each named color on a step (its own, or the best lightness fit)
+ *   3. route the path through them: per-axis residual interpolation, so the base
+ *      curve keeps its shape and every named color is hit exactly
+ *   4. gamut-map every swatch (chroma clamp) so the stored OKLCH is displayable,
+ *      recording what the path asked for and could not have
  */
 import {
   type Curve,
@@ -18,11 +24,104 @@ import {
   defaultChroma,
   bumpPeakFor,
 } from './curves.js';
-import { STEP_COUNT, makeScale, type StepName } from './naming.js';
+import { STEP_COUNT, makeScale, type Scale, type StepName } from './naming.js';
 import { parse, gamutClamp, normalize, toHex, toCss, type Oklch } from './color/oklch.js';
 
 /** Chroma difference below this is float noise, not a real gamut loss. */
 const CLAMP_EPSILON = 1e-6;
+
+/** A residual per axis at one step, used to route the ramp through its colors. */
+interface Anchor {
+  i: number;
+  l: number;
+  c: number;
+  h: number;
+}
+
+/**
+ * Signed hue difference `to - from`, taken the short way around the circle.
+ *
+ * Hue is the one axis where plain subtraction is wrong: 350° to 10° is +20°,
+ * not −340°. Get this wrong and a family routed through a named color spins the
+ * long way through every hue on the wheel to reach it.
+ */
+export function hueDelta(from: number, to: number): number {
+  return ((((to - from) % 360) + 540) % 360) - 180;
+}
+
+/** A named color resolved to a step. */
+interface PinnedColor {
+  name?: string;
+  alias?: string;
+  oklch: Oklch;
+}
+
+/**
+ * Resolve every named color (and every terse lock) to a step index.
+ *
+ * A color that names its step goes there. A color that doesn't goes where the
+ * ramp's own lightness comes closest to it — the least violent placement, and a
+ * down payment on letting the step be negotiated properly later. Ties and
+ * collisions resolve in favour of the color declared first.
+ */
+function placeColors(spec: FamilySpec, scale: Scale, baseL: number[]): Map<number, PinnedColor> {
+  const declared: NamedColor[] = [...(spec.colors ?? [])];
+
+  // The terse form desugars into the same list, with no name attached.
+  for (const [key, val] of Object.entries(spec.locks ?? {})) {
+    declared.push({ value: val as string | Oklch, step: key as StepName });
+  }
+
+  const placed = new Map<number, PinnedColor>();
+  const taken = new Set<number>();
+
+  // Explicit steps are claimed first, so an unplaced color cannot steal one.
+  const resolved = declared.map((color) => {
+    const oklch = parse(color.value);
+    if (color.step === undefined) return { color, oklch, index: -1 };
+    // Step keys are names ("700") or raw indices (7). Names and the index range
+    // never overlap, so prefer a name match, else treat the key as an index.
+    const key = color.step;
+    const index =
+      typeof key === 'string' && scale.names.includes(key)
+        ? scale.indexOf(key)
+        : scale.indexOf(typeof key === 'string' ? Number(key) : key);
+    taken.add(index);
+    return { color, oklch, index };
+  });
+
+  for (const r of resolved) {
+    const index = r.index >= 0 ? r.index : nearestFreeByLightness(r.oklch.l, baseL, taken);
+    taken.add(index);
+    if (!placed.has(index)) {
+      placed.set(index, {
+        oklch: r.oklch,
+        ...(r.color.name !== undefined ? { name: r.color.name } : {}),
+        ...(r.color.alias !== undefined ? { alias: r.color.alias } : {}),
+      });
+    }
+  }
+  return placed;
+}
+
+/** The step whose base lightness is closest to `l` and not already claimed. */
+function nearestFreeByLightness(l: number, baseL: number[], taken: Set<number>): number {
+  let best = -1;
+  let bestGap = Infinity;
+  for (let i = 0; i < baseL.length; i++) {
+    if (taken.has(i)) continue;
+    const gap = Math.abs(baseL[i]! - l);
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = i;
+    }
+  }
+  // Every step already claimed: fall back to the closest overall.
+  if (best < 0) {
+    best = baseL.reduce((b, v, i) => (Math.abs(v - l) < Math.abs(baseL[b]! - l) ? i : b), 0);
+  }
+  return best;
+}
 
 export interface FamilySpec {
   /** Family name, used as the token group name (e.g. "blue", "danger"). */
@@ -35,10 +134,52 @@ export interface FamilySpec {
   lightness?: CurveSpec;
   /** Number of steps in the ramp. Default 12 (the canonical named scale). */
   steps?: number;
-  /** Pinned colors: step name ("500") or index -> any CSS color / OKLCH. */
+  /**
+   * The brand's own colors, which this family's ramp must pass through.
+   *
+   * A list rather than a map keyed by step, because which step a color lands on
+   * is a decision, not a fact — a branding book says "our blue is #1d4ed8", not
+   * "our blue is step 700". Omit `step` and the engine places it where the
+   * ramp's lightness already comes closest.
+   */
+  colors?: NamedColor[];
+  /**
+   * Pinned colors, terse form: step -> color. Desugars into `colors` with no
+   * name attached. Kept because it reads well when the name doesn't matter.
+   */
   locks?: Partial<Record<StepName, string | Oklch>> | Record<number, string | Oklch>;
   /** Vendor data the engine carries but never reads. See `PaletteSpec.$extensions`. */
   $extensions?: Record<string, unknown>;
+}
+
+/**
+ * A color the brand already owns, and which the family is built around.
+ *
+ * Several per family is the normal case, not the exception: a branding book
+ * routinely lists a bright blue and a deep navy. They become waypoints on one
+ * ramp rather than two unrelated families.
+ */
+export interface NamedColor {
+  /** The brand's name for it, e.g. "Corporate Blue". Prose, for humans. */
+  name?: string;
+  /**
+   * A second way to point at this color in the token file, e.g. "brand green".
+   *
+   * Deliberately separate from `name`. A name is prose on a swatch; an alias is
+   * an identifier someone types. Deriving one from the other gives you
+   * `acme-signal-blue`, which nobody wants to write. Omitted means no alias is
+   * emitted at all — token files never grow entries on their own.
+   */
+  alias?: string;
+  /** Any CSS color or OKLCH. */
+  value: string | Oklch;
+  /**
+   * Step name ("700") or 0-based index. Omitted = best lightness fit.
+   *
+   * `string & {}` keeps autocomplete on the canonical names while still
+   * accepting the generated names of a non-default step count.
+   */
+  step?: StepName | number | (string & {});
 }
 
 export interface Swatch {
@@ -65,8 +206,21 @@ export interface Swatch {
   hex: string;
   /** CSS `oklch(...)` string. */
   css: string;
-  /** Whether this step was pinned by a lock. */
+  /** Whether this step is one of the family's named colors. */
   locked: boolean;
+  /** The brand's name for this color, when it has one. */
+  colorName?: string;
+  /** The token alias pointing at this color, when it has one. */
+  alias?: string;
+  /**
+   * How far this named color pulled the base curve, per axis. Pinned steps only.
+   *
+   * A brand color that sits close to where the ramp was already going pulls
+   * almost nothing. One pinned somewhere its lightness does not belong drags
+   * the whole curve to reach it, and every other step pays for it — which is
+   * the difference between a palette built around a color and one fighting it.
+   */
+  pull?: { l: number; c: number; h: number };
 }
 
 /** How much chroma the gamut cost this swatch. Zero when nothing was lost. */
@@ -93,35 +247,53 @@ export function resolveFamily(spec: FamilySpec): Family {
     : defaultChroma(spec.chroma ?? 0.14);
   const lightCurve: Curve = spec.lightness ? compile(spec.lightness) : defaultLightness();
 
-  // Normalize locks to index -> OKLCH.
-  const locks = new Map<number, Oklch>();
-  for (const [key, val] of Object.entries(spec.locks ?? {})) {
-    // Lock keys are step names ("700") or raw indices (7). Names and the index
-    // range never overlap, so prefer a name match, else treat the key as an index.
-    const idx = scale.names.includes(key) ? scale.indexOf(key) : scale.indexOf(Number(key));
-    locks.set(idx, parse(val as string | Oklch));
-  }
-
-  // Base curves.
+  // Base curves, before any named color pulls them.
   const baseL = scale.t.map((t) => lightCurve(t));
   const baseC = scale.t.map((t) => chromaCurve(t));
   const baseH = scale.t.map((t) => hueCurve(t));
 
-  // Lightness residual anchoring: residual = lockedL - baseL at locked steps and
-  // at the two endpoints (0 there unless they are themselves locked). Interpolate
-  // residual linearly across indices, then add back — base curve shape preserved,
-  // locked lightness hit exactly.
-  const anchors: Array<{ i: number; r: number }> = [];
+  const pinned = placeColors(spec, scale, baseL);
+
+  // Route the ramp through its named colors.
+  //
+  // For each axis, take the residual (what the color is, minus what the base
+  // curve would have given) at every pinned step, and zero at the two endpoints
+  // unless those are pinned themselves. Interpolate the residuals across
+  // indices and add them back: the base curve keeps its shape, and the pinned
+  // colors are hit exactly.
+  //
+  // All three axes, not just lightness. Routing only L leaves a pinned color as
+  // a spike — its neighbours keep the curve's chroma and hue while it jumps to
+  // its own, which is visible as a bright step in an otherwise even ramp and as
+  // a hue that snaps away and back in a single step.
   const endpoints = [0, scale.count - 1];
+  const anchors: Anchor[] = [];
   for (const i of endpoints) {
-    const r = locks.has(i) ? locks.get(i)!.l - baseL[i]! : 0;
-    anchors.push({ i, r });
+    const c = pinned.get(i);
+    anchors.push(
+      c
+        ? {
+            i,
+            l: c.oklch.l - baseL[i]!,
+            c: c.oklch.c - baseC[i]!,
+            h: hueDelta(baseH[i]!, c.oklch.h),
+          }
+        : { i, l: 0, c: 0, h: 0 },
+    );
   }
-  for (const [i, c] of locks) {
-    if (!endpoints.includes(i)) anchors.push({ i, r: c.l - baseL[i]! });
+  for (const [i, c] of pinned) {
+    if (!endpoints.includes(i)) {
+      anchors.push({
+        i,
+        l: c.oklch.l - baseL[i]!,
+        c: c.oklch.c - baseC[i]!,
+        h: hueDelta(baseH[i]!, c.oklch.h),
+      });
+    }
   }
   anchors.sort((a, b) => a.i - b.i);
-  const residual = (i: number): number => {
+
+  const residual = (i: number): Anchor => {
     let lo = anchors[0]!;
     let hi = anchors[anchors.length - 1]!;
     for (let k = 0; k < anchors.length - 1; k++) {
@@ -131,15 +303,25 @@ export function resolveFamily(spec: FamilySpec): Family {
         break;
       }
     }
-    if (hi.i === lo.i) return lo.r;
+    if (hi.i === lo.i) return lo;
     const f = (i - lo.i) / (hi.i - lo.i);
-    return lo.r + (hi.r - lo.r) * f;
+    return {
+      i,
+      l: lo.l + (hi.l - lo.l) * f,
+      c: lo.c + (hi.c - lo.c) * f,
+      h: lo.h + (hi.h - lo.h) * f,
+    };
   };
 
   const swatches: Swatch[] = scale.names.map((name, i) => {
-    const lock = locks.get(i);
+    const pin = pinned.get(i);
+    const r = residual(i);
     // What the spec asked for, in canonical range but not yet made displayable.
-    const requested = normalize(lock ?? { l: baseL[i]! + residual(i), c: baseC[i]!, h: baseH[i]! });
+    // A pinned step uses its color verbatim; residual interpolation hits it
+    // exactly anyway, but going through the arithmetic would cost precision.
+    const requested = normalize(
+      pin ? pin.oklch : { l: baseL[i]! + r.l, c: baseC[i]! + r.c, h: baseH[i]! + r.h },
+    );
     const oklch = gamutClamp(requested);
     return {
       name,
@@ -152,7 +334,10 @@ export function resolveFamily(spec: FamilySpec): Family {
       clamped: requested.c - oklch.c > CLAMP_EPSILON,
       hex: toHex(oklch),
       css: toCss(oklch),
-      locked: !!lock,
+      locked: !!pin,
+      ...(pin?.name !== undefined ? { colorName: pin.name } : {}),
+      ...(pin?.alias !== undefined ? { alias: pin.alias } : {}),
+      ...(pin ? { pull: { l: r.l, c: r.c, h: r.h } } : {}),
     };
   });
 
@@ -189,6 +374,8 @@ export interface SeedSpec {
    * its neighbors rotate around it. Default 0 (constant hue).
    */
   hueTorsion?: number;
+  /** A token alias for the seed, e.g. "brand green". See `NamedColor.alias`. */
+  colorAlias?: string;
   /** Lightness ramp. Defaults to the standard bright-tint -> deep-shade ramp. */
   lightness?: CurveSpec;
   /**
@@ -197,15 +384,20 @@ export interface SeedSpec {
    * family inherits the seed's colorfulness instead of a fixed default.
    */
   chroma?: number | CurveSpec;
+  /**
+   * The brand's name for the seed, e.g. "Corporate Blue". The seed usually IS
+   * a named color — this is where the name goes.
+   */
+  colorName?: string;
 }
 
 /**
  * Build a FamilySpec anchored to a single fixed color.
  *
  * The family's hue — and, by default, its chroma level — are read FROM the
- * seed; the full ramp is generated around it; and the seed is pinned at its
- * step via a lock. This is the "one brand color -> full tonal family" entry
- * point: pass it a resolvable spec and hand the result to `resolveFamily`.
+ * seed; the full ramp is generated around it; and the seed becomes the family's
+ * named color at its step. This is the "one brand color -> full tonal family"
+ * entry point: pass it a resolvable spec and hand the result to `resolveFamily`.
  */
 export function seedFamily(spec: SeedSpec): FamilySpec {
   const seed = parse(spec.seed);
@@ -227,6 +419,19 @@ export function seedFamily(spec: SeedSpec): FamilySpec {
     chroma,
     lightness: spec.lightness,
     steps: spec.steps,
-    locks: { [scale.names[idx]!]: seed } as FamilySpec['locks'],
+    // Named form when the seed has a name, terse form otherwise — so specs that
+    // don't care about naming keep serializing exactly as they did.
+    ...(spec.colorName !== undefined || spec.colorAlias !== undefined
+      ? {
+          colors: [
+            {
+              ...(spec.colorName !== undefined ? { name: spec.colorName } : {}),
+              ...(spec.colorAlias !== undefined ? { alias: spec.colorAlias } : {}),
+              value: seed,
+              step: scale.names[idx]!,
+            },
+          ],
+        }
+      : { locks: { [scale.names[idx]!]: seed } as FamilySpec['locks'] }),
   };
 }

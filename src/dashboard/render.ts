@@ -73,8 +73,12 @@ function renderFamily(family: Family, contract: ContractResult): string {
           ? ` <span class="clamp" title="chroma ${s.requested.c.toFixed(3)} requested, ${s.oklch.c.toFixed(3)} reachable in sRGB at hue ${s.oklch.h.toFixed(0)}">~</span>`
           : '');
       const cls = 'sw' + (breaks.has(s.name) ? ' nonmono' : '');
+      // The brand's own name for the colour, where it has one — this is the
+      // swatch a designer is actually looking for in the strip.
+      const brand = s.colorName ? `<span class="brand">${esc(s.colorName)}</span>` : '';
       return `<div class="${cls}" style="background:${s.hex};color:${ink}">
         <span class="nm">${s.name}${marks}</span>
+        ${brand}
         <span class="hx">${s.hex}</span>
       </div>`;
     })
@@ -147,6 +151,7 @@ select{background:#1a1a1d;color:#e7e7ea;border:1px solid #333;border-radius:6px;
 .sw .nm{font-weight:700}
 .sw .hx{opacity:.85;font-variant-numeric:tabular-nums;font-size:10px}
 .sw .clamp{opacity:.75;cursor:help}
+.sw .brand{font-size:10px;font-weight:600;opacity:.9;line-height:1.2;margin-top:2px}
 .sw.nonmono{outline:2px dashed #f08aa0;outline-offset:-2px}
 .notes{font-size:11.5px;color:#c9a227;margin:-4px 0 12px;line-height:1.5}
 .grid{border-collapse:separate;border-spacing:2px;width:100%;table-layout:fixed}

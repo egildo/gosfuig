@@ -70,8 +70,11 @@ describe('every swatch records what was asked for', () => {
    *
    * The defaults ask for a chroma the gamut cannot give at the lightest step.
    * `defaultChroma`'s floor is C 0.025; `defaultLightness`'s `max` is L 0.98,
-   * where sRGB allows only C 0.0093–0.0705 depending on hue. Measured: 50 of 72
+   * where sRGB allows only C 0.0093–0.0705 depending on hue. Measured: 49 of 72
    * hues clamp, worst loss 0.0157 at hue 270.
+   *
+   * (49, not 50: one hue's overshoot was under half a byte and so never left
+   * the gamut at all — it was a false positive from a strict boundary test.)
    *
    * Fixing it means changing the defaults — lowering the floor to ~0.009, or
    * lowering `lightMax` to ~0.95 where 0.0236 is reachable — which moves the
@@ -84,7 +87,7 @@ describe('every swatch records what was asked for', () => {
     for (let hue = 0; hue < 360; hue += 5) {
       if (resolveFamily({ name: 'h', hue }).swatches[0]!.clamped) clampedHues.push(hue);
     }
-    expect(clampedHues.length).toBe(50);
+    expect(clampedHues.length).toBe(49);
 
     const worst = Math.max(
       ...clampedHues.map((hue) => chromaLoss(resolveFamily({ name: 'h', hue }).swatches[0]!)),

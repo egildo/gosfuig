@@ -26,6 +26,14 @@ import {
 import { toW3CTokens } from '../export/w3c.js';
 import { parse, toHex } from '../color/oklch.js';
 import { stringifyConfig, parseConfig } from '../config.js';
+import {
+  BUILTIN_TEMPLATES,
+  findTemplate,
+  isTemplate,
+  templateFromSpec,
+  type Template,
+} from '../template.js';
+import { slugify } from '../export/shape.js';
 import type { W3CExportOptions } from '../export/w3c.js';
 import {
   type FamilyState,
@@ -172,6 +180,21 @@ function note(message: string, kind: 'ok' | 'bad' = 'ok'): void {
 
 // ---- config import / export ----
 let lastConfigUrl: string | null = null;
+let lastTemplateUrl: string | null = null;
+
+/** File picker for house-style templates, separate from the config one. */
+const templateInput = el('input', {
+  type: 'file',
+  accept: '.json,application/json',
+  class: 'hidden-file',
+  'aria-label': 'load a house style template',
+  onchange: (e) => {
+    const input = e.target as HTMLInputElement;
+    const f = input.files?.[0];
+    if (f) void loadTemplateFile(f);
+    input.value = '';
+  },
+}) as HTMLInputElement;
 
 function saveConfig(): void {
   const text = stringifyConfig(toConfig({ steps, families, export: exportShape }, paletteName));
@@ -197,6 +220,119 @@ async function loadConfigFile(file: File): Promise<void> {
   }
 }
 
+/**
+ * House-style picker.
+ *
+ * The CLI applies a template as a base the config overrides; here it has to be
+ * an edit, because a studio family always carries explicit curves and a silent
+ * base would change nothing at all. So this writes the template's values into
+ * every family, visibly, and says what it did.
+ */
+function templatePicker(): HTMLElement {
+  const sel = el('select', { 'aria-label': 'apply a house style' }) as HTMLSelectElement;
+  sel.append(el('option', { value: '' }, ['house style…']));
+  for (const t of BUILTIN_TEMPLATES) {
+    sel.append(el('option', { value: t.name, title: t.description ?? '' }, [t.name]));
+  }
+  // Saving and loading live in the same control as applying, so house styles
+  // have one place rather than three scattered buttons.
+  sel.append(
+    el('option', { value: SAVE_TEMPLATE, title: 'write these curves out as a .json template' }, [
+      '— save current as file…',
+    ]),
+    el('option', { value: LOAD_TEMPLATE, title: 'apply a .json template from disk' }, [
+      '— load from file…',
+    ]),
+  );
+
+  sel.addEventListener('change', () => {
+    const choice = sel.value;
+    sel.value = '';
+    if (choice === SAVE_TEMPLATE) return saveTemplateFile();
+    if (choice === LOAD_TEMPLATE) return templateInput.click();
+    const t = findTemplate(choice);
+    if (!t) return;
+    applyTemplateToState(t);
+    note(`applied "${t.name}" to all ${families.length} families — ${t.description ?? ''}`);
+  });
+  return sel;
+}
+
+/**
+ * Sentinel option values for the two non-template entries in the picker.
+ * Checked before any template lookup, and shaped so they cannot collide
+ * with a real template name.
+ */
+const SAVE_TEMPLATE = '__save__';
+const LOAD_TEMPLATE = '__load__';
+
+/**
+ * Write the current house style out as a template file.
+ *
+ * The same shape `gosfuig --template ./house.json` reads, so a style tuned here
+ * is directly reusable from the command line. Brand colors are never included —
+ * a template is the reusable half only.
+ */
+function saveTemplateFile(): void {
+  const suggested = paletteName.trim() === '' ? 'house' : paletteName.trim();
+  const name = window.prompt('Name this house style', suggested);
+  if (name === null || name.trim() === '') return;
+
+  const template = templateFromSpec(
+    toConfig({ steps, families, export: exportShape }),
+    name.trim(),
+  );
+  const text = JSON.stringify(template, null, 2) + '\n';
+  if (lastTemplateUrl) URL.revokeObjectURL(lastTemplateUrl);
+  lastTemplateUrl = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const file = `${slugify(name.trim())}.template.json`;
+  (el('a', { href: lastTemplateUrl, download: file }) as HTMLAnchorElement).click();
+  note(`saved ${file} — apply it anywhere with: gosfuig palette.json --template ./${file}`);
+}
+
+async function loadTemplateFile(file: File): Promise<void> {
+  try {
+    const raw: unknown = JSON.parse(await file.text());
+    if (!isTemplate(raw)) {
+      throw new Error(
+        `${file.name} is not a template (needs a "name", and only ` +
+          `name/description/steps/lightness/chroma/export)`,
+      );
+    }
+    applyTemplateToState(raw);
+    note(`applied "${raw.name}" from ${file.name} to all ${families.length} families`);
+  } catch (err) {
+    note(err instanceof Error ? err.message : String(err), 'bad');
+  }
+}
+
+/** Write a template's policy into every family's sliders. */
+function applyTemplateToState(t: Template): void {
+  if (t.steps !== undefined) steps = t.steps;
+  for (const f of families) {
+    if (t.lightness?.kind === 'ramp') {
+      f.lightMax = t.lightness.max;
+      f.lightMin = t.lightness.min;
+      f.gamma = t.lightness.gamma ?? 1;
+      f.sCurve = t.lightness.sCurve ?? 0;
+    }
+    if (t.chroma !== undefined && typeof t.chroma !== 'number' && t.chroma.kind === 'bump') {
+      f.chroma = t.chroma.peak;
+      f.tPeak = t.chroma.tPeak ?? f.tPeak;
+      f.chromaLight = t.chroma.light ?? f.chromaLight;
+      f.chromaDark = t.chroma.dark ?? f.chromaDark;
+      f.chromaAuto = false;
+    } else if (typeof t.chroma === 'number') {
+      f.chroma = t.chroma;
+      f.chromaAuto = false;
+    }
+  }
+  if (t.export !== undefined) exportShape = t.export;
+  openGrid = -1;
+  scheduleSave();
+  mount();
+}
+
 function resetSession(): void {
   paletteName = 'gosfuig studio';
   adoptSession({ steps: DEFAULT_STEPS, families: defaultFamilies(), export: undefined });
@@ -212,6 +348,43 @@ let cards: Card[] = [];
 
 function mount(): void {
   app.innerHTML = '';
+
+  // Sticky action bar. Everything here is something you reach for repeatedly
+  // while working, so it follows you down the page; the intro above it scrolls
+  // away. The config note lives inside the bar, next to the buttons that
+  // produce it, but bounded in height so a long validation error cannot grow
+  // the header without limit.
+  app.append(
+    el('div', { class: 'bar' }, [
+      el('div', { class: 'bar-row' }, [
+        summaryEl,
+        el('span', { class: 'gap' }),
+        templatePicker(),
+        el('button', { class: 'btn add', onclick: addFamily }, ['+ family']),
+        el(
+          'button',
+          {
+            class: 'btn',
+            title: 'download this session as palette.config.json',
+            onclick: saveConfig,
+          },
+          ['save ↓'],
+        ),
+        el(
+          'button',
+          { class: 'btn', title: 'load a palette.config.json', onclick: () => configInput.click() },
+          ['load ↑'],
+        ),
+        el('button', { class: 'btn', title: 'discard and start over', onclick: resetSession }, [
+          'reset',
+        ]),
+        el('button', { class: 'btn accent', onclick: showTokens }, ['export tokens']),
+        configInput,
+        templateInput,
+      ]),
+      configNote,
+    ]),
+  );
 
   // global STEPS card
   const stepsVal = el('span', { class: 'steps-val' }, [String(steps)]);
@@ -240,42 +413,13 @@ function mount(): void {
 
   app.append(
     el('div', { class: 'summary' }, [
-      summaryEl,
       el('span', { class: 'legend' }, [
-        'contract = darkest steps readable (WCAG AA ≥ 4.5) on the lightest — locks are never overridden to force a pass',
+        'contract = darkest steps readable (WCAG AA ≥ 4.5) on the lightest — locks are never overridden to force a pass. Click any swatch strip to open its contrast grid.',
       ]),
     ]),
   );
 
   app.append(famHost);
-
-  app.append(
-    el('div', { class: 'row' }, [
-      el('button', { class: 'btn add', onclick: addFamily }, ['+ add family']),
-      el('button', { class: 'btn accent', onclick: showTokens }, ['export W3C tokens']),
-      el('span', { class: 'gap' }),
-      el(
-        'button',
-        {
-          class: 'btn',
-          title: 'download this session as palette.config.json',
-          onclick: saveConfig,
-        },
-        ['save config ↓'],
-      ),
-      el(
-        'button',
-        { class: 'btn', title: 'load a palette.config.json', onclick: () => configInput.click() },
-        ['load config ↑'],
-      ),
-      el('button', { class: 'btn', title: 'discard and start over', onclick: resetSession }, [
-        'reset',
-      ]),
-      configInput,
-      el('span', { class: 'legend' }, ['click any swatch strip to toggle its contrast grid']),
-    ]),
-  );
-  app.append(configNote);
   app.append(outEl);
 
   remountFamilies();
@@ -379,7 +523,45 @@ function buildCard(fi: number): Card {
       el('option', { value: i, selected: i === Math.min(fam.seedStep, steps - 1) }, ['pin ' + n]),
     ),
   );
-  const seedCtrls = el('div', { class: 'seed-only src' }, [seedColor, seedStepSel]);
+  // The brand's own name for this color, and the token alias that points at it.
+  // Two fields rather than one because they are different kinds of string: the
+  // name is prose on a swatch, the alias is an identifier someone types.
+  const seedName = el('input', {
+    type: 'text',
+    class: 'color-name',
+    value: fam.seedName ?? '',
+    placeholder: 'color name',
+    title: 'the brand’s name for this color, e.g. "Corporate Blue"',
+    'aria-label': 'color name',
+    oninput: (e) => {
+      const v = (e.target as HTMLInputElement).value.trim();
+      if (v === '') delete fam.seedName;
+      else fam.seedName = v;
+      refreshSelf();
+    },
+  }) as HTMLInputElement;
+
+  const seedAlias = el('input', {
+    type: 'text',
+    class: 'color-alias',
+    value: fam.seedAlias ?? '',
+    placeholder: 'token alias',
+    title: 'a second way to point at this color in the token file, e.g. "brand blue"',
+    'aria-label': 'token alias',
+    oninput: (e) => {
+      const v = (e.target as HTMLInputElement).value.trim();
+      if (v === '') delete fam.seedAlias;
+      else fam.seedAlias = v;
+      refreshSelf();
+    },
+  }) as HTMLInputElement;
+
+  const seedCtrls = el('div', { class: 'seed-only src' }, [
+    seedColor,
+    seedStepSel,
+    seedName,
+    seedAlias,
+  ]);
 
   const hue = inlineSlider(
     'hue',
@@ -607,7 +789,7 @@ function buildCard(fi: number): Card {
               (notable ? ' clamped' : '') +
               (breaks.has(s.name) ? ' nonmono' : ''),
             style: `background:${s.hex};color:${ink}`,
-            title: `${s.name} · ${s.hex} · L ${s.oklch.l.toFixed(2)} C ${s.oklch.c.toFixed(3)} H ${s.oklch.h.toFixed(0)}${asked}`,
+            title: `${s.colorName ? s.colorName + ' · ' : ''}${s.alias ? '{' + s.alias + '} · ' : ''}${s.name} · ${s.hex} · L ${s.oklch.l.toFixed(2)} C ${s.oklch.c.toFixed(3)} H ${s.oklch.h.toFixed(0)}${asked}`,
             onclick: () => {
               openGrid = openGrid === fi ? -1 : fi;
               refreshAll();
@@ -619,6 +801,7 @@ function buildCard(fi: number): Card {
               s.locked ? el('span', { class: 'star' }, [' ★']) : null,
               notable ? el('span', { class: 'clamp' }, [' ~']) : null,
             ]),
+            s.colorName ? el('span', { class: 'brand' }, [s.colorName]) : null,
             el('span', { class: 'h' }, [s.hex]),
           ],
         );

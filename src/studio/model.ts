@@ -11,7 +11,7 @@
  * definition. They ride along under `$extensions["gosfuig.studio"]`, which the
  * CLI reads past without caring — so one file serves both, losslessly.
  */
-import { seedFamily, type FamilySpec } from '../family.js';
+import { seedFamily, type FamilySpec, type NamedColor } from '../family.js';
 import { type CurveSpec, isCurveSpec } from '../curves.js';
 import { makeScale } from '../naming.js';
 import { parse, toHex } from '../color/oklch.js';
@@ -33,6 +33,15 @@ export interface FamilyState {
   chromaLight: number;
   chromaDark: number;
   hueTorsion: number;
+  /** The brand's name for the seed colour, when the config gave one. */
+  seedName?: string;
+  /** The seed's token alias, when the config gave one. */
+  seedAlias?: string;
+  /**
+   * Named colours beyond the first. The studio edits one per family; these are
+   * carried verbatim so importing and re-exporting a richer config is lossless.
+   */
+  carriedColors?: NamedColor[];
   lightMax: number;
   lightMin: number;
   gamma: number;
@@ -83,7 +92,7 @@ export function chromaCurveOf(f: FamilyState): CurveSpec {
 export function toSpec(f: FamilyState, steps: number): FamilySpec {
   const lightness = lightnessOf(f);
   if (f.mode === 'seed') {
-    return seedFamily({
+    const spec = seedFamily({
       name: f.name,
       seed: f.seed,
       step: Math.min(f.seedStep, steps - 1),
@@ -91,7 +100,17 @@ export function toSpec(f: FamilyState, steps: number): FamilySpec {
       hueTorsion: f.hueTorsion,
       lightness,
       chroma: f.chromaAuto ? undefined : chromaCurveOf(f),
+      ...(f.seedName !== undefined ? { colorName: f.seedName } : {}),
+      ...(f.seedAlias !== undefined ? { colorAlias: f.seedAlias } : {}),
     });
+    if (!f.carriedColors?.length) return spec;
+    // Fold the seed and the carried colours into one list, so a family the
+    // studio cannot fully edit still round-trips through it intact.
+    const seedColor: NamedColor = spec.colors?.[0] ?? {
+      value: f.seed,
+      step: Math.min(f.seedStep, steps - 1),
+    };
+    return { ...spec, locks: undefined, colors: [seedColor, ...f.carriedColors] };
   }
   const hue: number | CurveSpec =
     f.hueTorsion !== 0
@@ -196,18 +215,32 @@ function stateFromSpec(fs: FamilySpec, steps: number): FamilyState {
     state.hue = fs.hue.value;
   }
 
-  // A single lock reads as a seed: that is what `seedFamily` produces, and it
-  // is the more useful of the two readings when the intent is unrecorded.
-  const locks = Object.entries(fs.locks ?? {});
-  if (locks.length === 1) {
-    const [key, value] = locks[0]!;
-    const scale = makeScale(fs.steps ?? steps);
+  // Named colors and terse locks say the same thing, so read both. The first
+  // becomes the editable seed — that is what `seedFamily` produces, and the
+  // more useful reading when the authoring intent is unrecorded.
+  const scale = makeScale(fs.steps ?? steps);
+  const declared: NamedColor[] = [
+    ...(fs.colors ?? []),
+    ...Object.entries(fs.locks ?? {}).map(([step, value]) => ({
+      value: value as string,
+      step,
+    })),
+  ];
+
+  if (declared.length > 0) {
+    const [first, ...rest] = declared;
+    const key = String(first!.step ?? '');
     const idx = scale.names.includes(key) ? scale.indexOf(key) : Number(key);
-    if (Number.isInteger(idx) && idx >= 0 && idx < scale.count) {
-      state.mode = 'seed';
-      state.seed = toHex(parse(value as string));
-      state.seedStep = idx;
-    }
+    state.mode = 'seed';
+    state.seed = toHex(parse(first!.value));
+    if (first!.name !== undefined) state.seedName = first!.name;
+    if (first!.alias !== undefined) state.seedAlias = first!.alias;
+    // No step, or an unusable one: let the engine place it by lightness, which
+    // is what `seedStep` on a fresh family already means.
+    if (Number.isInteger(idx) && idx >= 0 && idx < scale.count) state.seedStep = idx;
+    // The studio edits one color per family. Anything else the config declared
+    // is carried verbatim so re-exporting does not silently drop it.
+    if (rest.length > 0) state.carriedColors = rest;
   } else {
     state.mode = 'free';
   }

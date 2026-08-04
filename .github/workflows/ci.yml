@@ -59,6 +59,52 @@ jobs:
           node dist/bin.js /tmp/gosfuig-rt/palette.config.json -o /tmp/gosfuig-rt2 --no-dashboard
           diff /tmp/gosfuig-rt/tokens.json /tmp/gosfuig-rt2/tokens.json
 
+      - name: CLI smoke test — a template applies, then resolves away
+        run: |
+          node dist/bin.js --templates
+          node dist/bin.js examples/brand.config.json -o /tmp/gosfuig-t1 \
+            --template contrast --emit-config --no-dashboard
+          # The emitted config must stand alone: same tokens without --template.
+          node dist/bin.js /tmp/gosfuig-t1/palette.config.json -o /tmp/gosfuig-t2 --no-dashboard
+          diff /tmp/gosfuig-t1/tokens.json /tmp/gosfuig-t2/tokens.json
+          # Aliases land flat at the root as DTCG references into the ramp.
+          node -e "
+            const t = require('/tmp/gosfuig-t1/tokens.json');
+            const ref = t['brand-blue']?.\$value;
+            if (typeof ref !== 'string' || !ref.startsWith('{')) {
+              throw new Error('expected brand-blue to be a reference, got ' + JSON.stringify(ref));
+            }
+            const path = ref.slice(1, -1).split('.');
+            if (!path.reduce((n, k) => n?.[k], t)) throw new Error('alias points nowhere: ' + ref);
+          "
+          # A template that changes the step count invalidates step NAMES, and
+          # that must surface as a located spec error, not an engine crash.
+          if node dist/bin.js examples/brand.config.json -o /tmp/gosfuig-t3 \
+               --template fine --no-dashboard 2>&1 | grep -q '16-step scale'; then
+            echo "step-count mismatch reported correctly"
+          else
+            echo "expected a located error about the 16-step scale" >&2
+            exit 1
+          fi
+
+      - name: CLI smoke test — the worked example resolves through its house style
+        run: |
+          node dist/bin.js examples/sardegna.config.json -o /tmp/gosfuig-sard \
+            --template examples/sardegna.template.json --no-dashboard
+          node -e "
+            const t = require('/tmp/gosfuig-sard/tokens.json');
+            const ramps = Object.keys(t.color ?? {});
+            if (ramps.length !== 12) throw new Error('expected 12 ramps, got ' + ramps.length);
+            // Every generic alias must resolve to a real token.
+            for (const k of Object.keys(t)) {
+              if (k === 'color') continue;
+              const ref = t[k].\$value;
+              if (!ref.slice(1, -1).split('.').reduce((n, s) => n?.[s], t)) {
+                throw new Error('alias ' + k + ' points nowhere: ' + ref);
+              }
+            }
+          "
+
       - name: CLI smoke test — --strict exits 1 on a failing family
         run: |
           if node dist/bin.js examples/palette.config.json -o /tmp/gosfuig-strict --strict; then
