@@ -1,0 +1,90 @@
+{
+  "$version": 1,
+  "name": "Palette Sardegna",
+  "families": [
+    {
+      "name": "busachi red",
+      "hue": 29.6,
+      "chroma": 0.163,
+      "colors": [{ "name": "Busachi Red", "alias": "red", "value": "oklch(57.5% 0.213 29.6)" }]
+    },
+    {
+      "name": "monreale yellow",
+      "hue": 98.2,
+      "chroma": 0.083,
+      "colors": [
+        { "name": "Monreale Yellow", "alias": "yellow", "value": "oklch(89.8% 0.186 98.2)" }
+      ]
+    },
+    {
+      "name": "carbonia black",
+      "hue": 248.8,
+      "chroma": 0.024,
+      "colors": [
+        { "name": "Carbonia Black", "alias": "black", "value": "oklch(20.5% 0.020 248.8)" }
+      ]
+    },
+    {
+      "name": "bosa magenta",
+      "hue": 347.1,
+      "chroma": 0.17,
+      "colors": [
+        { "name": "Bosa Magenta", "alias": "magenta", "value": "oklch(59.4% 0.230 347.1)" }
+      ]
+    },
+
+    {
+      "name": "goloritze teal",
+      "hue": 183.0,
+      "chroma": 0.072,
+      "colors": [{ "name": "Goloritzè Teal", "alias": "teal", "value": "oklch(55.4% 0.099 183.0)" }]
+    },
+    {
+      "name": "chia orange",
+      "hue": 59.8,
+      "chroma": 0.095,
+      "colors": [{ "name": "Chia Orange", "alias": "orange", "value": "oklch(68.1% 0.160 59.8)" }]
+    },
+    {
+      "name": "la pelosa pink",
+      "hue": 13.4,
+      "chroma": 0.161,
+      "colors": [{ "name": "La Pelosa Pink", "alias": "rose", "value": "oklch(83.4% 0.093 13.4)" }]
+    },
+    {
+      "name": "la maddalena blue",
+      "hue": 257.7,
+      "chroma": 0.147,
+      "colors": [
+        { "name": "La Maddalena Blue", "alias": "blue", "value": "oklch(33.3% 0.077 257.7)" }
+      ]
+    },
+
+    {
+      "name": "bovale purple",
+      "hue": 311.0,
+      "chroma": 0.202,
+      "colors": [
+        { "name": "Bovale Purple", "alias": "violet", "value": "oklch(28.4% 0.117 311.0)" }
+      ]
+    },
+    {
+      "name": "murta green",
+      "hue": 120.5,
+      "chroma": 0.096,
+      "colors": [{ "name": "Murta Green", "alias": "green", "value": "oklch(47.0% 0.089 120.5)" }]
+    },
+    {
+      "name": "murdegu white",
+      "hue": 97.4,
+      "chroma": 0.01,
+      "colors": [{ "name": "Murdegu White", "alias": "white", "value": "oklch(97.6% 0.007 97.4)" }]
+    },
+    {
+      "name": "nuragus lime",
+      "hue": 115.7,
+      "chroma": 0.092,
+      "colors": [{ "name": "Nuragus Lime", "alias": "lime", "value": "oklch(83.4% 0.190 115.7)" }]
+    }
+  ]
+}

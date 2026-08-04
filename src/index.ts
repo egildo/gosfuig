@@ -13,6 +13,7 @@ export {
   parse,
   normalize,
   isInGamut,
+  isStrictlyInGamut,
   gamutClamp,
   toHex,
   toRgb255,

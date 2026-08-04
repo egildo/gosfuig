@@ -1,0 +1,8 @@
+{
+  "name": "sardegna",
+  "description": "House style for Palette Sardegna: 12 steps, extra contrast margin, a chroma floor the light end can actually hold.",
+  "steps": 12,
+  "lightness": { "kind": "ramp", "max": 0.97, "min": 0.16, "gamma": 1, "sCurve": 0.16 },
+  "chroma": { "kind": "bump", "peak": 0.14, "tPeak": 0.6, "light": 0.012, "dark": 0.05 },
+  "export": { "prefix": "color", "slug": "kebab", "aliases": "reference" }
+}

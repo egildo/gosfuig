@@ -220,6 +220,29 @@ A colour that leaves placement to the engine has no such problem, which is a goo
 
 **The studio applies a template as a visible edit**, not as a silent base. A studio family always carries explicit curves, so `applyTemplate`'s fill-the-gaps behaviour would change nothing at all there; the picker writes the values into every family and says what it did.
 
+### A worked example: Palette Sardegna
+
+`examples/sardegna.config.json` and `examples/sardegna.template.json` are a real palette, not a toy: twelve families named for Sardinian places and beaches, each anchored to a verified Pantone.
+
+```sh
+gosfuig examples/sardegna.config.json -o tokens \
+  --template examples/sardegna.template.json
+```
+
+It exercises the whole model at once, and every piece earns its place:
+
+- **The compound name is the family, the generic word is the alias.** `busachi red` is the ramp; `red` is what a developer types. The token file gets twelve ramps under `color.` and twelve aliases beside them — `red → {color.busachi-red.400}`.
+- **No colour names its step.** Each is placed where the ramp's own lightness comes closest, and no colour ends up pulling its family by more than 0.04 — there is a test asserting it.
+- **The template holds the house style**, the config holds the brand facts. Config wins: the neutrals override the template's chroma because a near-grey family has no business at peak 0.14.
+
+All twelve pass the contract, all twelve ramps stay monotone, and every brand colour is delivered at its reference hex. That last one is a test against the branding book's own values, so if the engine ever stops honouring a pinned colour it fails against your document rather than against itself.
+
+**Two honest notes it surfaced.**
+
+The palette document's OKLCH and hex columns disagree by one byte for Nuragus Lime: `oklch(0.834 0.190 115.7)` renders `#c4d601`, the table's indicative hex says `#c4d600`. Chroma rounded to three decimals is not quite enough to round-trip a Pantone. gosfuig follows the OKLCH, since that is the anchor derived from the verified RGB.
+
+And **"chroma clamped" does not mean "bad ramp"**. Yellow and lime clamp at most steps here, because those hues hold roughly 0.098 where purple holds 0.238 — a factor of 2.4. The delivered ramps ride the gamut ceiling smoothly and look right; what is wrong is the _request_, which asks for a chroma that hue never had. Per-family peaks measured at 85% of each hue's cusp improve it a lot (purple went from clamped to clean) but cannot fix it, because the routing residual is linear in step index and knows nothing about the gamut. This is the clearest argument yet for expressing chroma as a fraction of the cusp rather than an absolute.
+
 ### Seed-driven families
 
 Instead of dialing a hue, hand `seedFamily` a fixed color. It derives the family's hue from the seed, derives the chroma level so the ramp passes through the seed's own chroma, and pins the seed at its step:

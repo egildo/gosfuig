@@ -87,6 +87,24 @@ jobs:
             exit 1
           fi
 
+      - name: CLI smoke test — the worked example resolves through its house style
+        run: |
+          node dist/bin.js examples/sardegna.config.json -o /tmp/gosfuig-sard \
+            --template examples/sardegna.template.json --no-dashboard
+          node -e "
+            const t = require('/tmp/gosfuig-sard/tokens.json');
+            const ramps = Object.keys(t.color ?? {});
+            if (ramps.length !== 12) throw new Error('expected 12 ramps, got ' + ramps.length);
+            // Every generic alias must resolve to a real token.
+            for (const k of Object.keys(t)) {
+              if (k === 'color') continue;
+              const ref = t[k].\$value;
+              if (!ref.slice(1, -1).split('.').reduce((n, s) => n?.[s], t)) {
+                throw new Error('alias ' + k + ' points nowhere: ' + ref);
+              }
+            }
+          "
+
       - name: CLI smoke test — --strict exits 1 on a failing family
         run: |
           if node dist/bin.js examples/palette.config.json -o /tmp/gosfuig-strict --strict; then
