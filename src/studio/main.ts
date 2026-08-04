@@ -660,7 +660,7 @@ function buildCard(fi: number): Card {
               (notable ? ' clamped' : '') +
               (breaks.has(s.name) ? ' nonmono' : ''),
             style: `background:${s.hex};color:${ink}`,
-            title: `${s.colorName ? s.colorName + ' · ' : ''}${s.name} · ${s.hex} · L ${s.oklch.l.toFixed(2)} C ${s.oklch.c.toFixed(3)} H ${s.oklch.h.toFixed(0)}${asked}`,
+            title: `${s.colorName ? s.colorName + ' · ' : ''}${s.alias ? '{' + s.alias + '} · ' : ''}${s.name} · ${s.hex} · L ${s.oklch.l.toFixed(2)} C ${s.oklch.c.toFixed(3)} H ${s.oklch.h.toFixed(0)}${asked}`,
             onclick: () => {
               openGrid = openGrid === fi ? -1 : fi;
               refreshAll();

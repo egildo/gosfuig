@@ -15,6 +15,7 @@
  */
 import { CURVE_KINDS, type CurveSpec } from './curves.js';
 import { SLUG_STYLES } from './export/shape.js';
+import { ALIAS_MODES } from './export/w3c.js';
 import { makeScale, STEP_COUNT } from './naming.js';
 import { parse } from './color/oklch.js';
 import type { FamilySpec } from './family.js';
@@ -48,7 +49,7 @@ const FAMILY_KEYS = [
   'locks',
   '$extensions',
 ];
-const NAMED_COLOR_KEYS = ['name', 'value', 'step'];
+const NAMED_COLOR_KEYS = ['name', 'alias', 'value', 'step'];
 const PALETTE_KEYS = ['name', 'families', 'export', '$version', '$extensions'];
 
 const EXPORT_KEYS = [
@@ -61,6 +62,7 @@ const EXPORT_KEYS = [
   'slug',
   'flatten',
   'separator',
+  'aliases',
 ];
 
 /** The config format this build writes and understands. */
@@ -194,6 +196,9 @@ function validateColors(
     if (color.name !== undefined && (typeof color.name !== 'string' || color.name.trim() === ''))
       errors.push({ path: `${at}.name`, message: `expected a non-empty string` });
 
+    if (color.alias !== undefined && (typeof color.alias !== 'string' || color.alias.trim() === ''))
+      errors.push({ path: `${at}.alias`, message: `expected a non-empty string` });
+
     if (!('value' in color)) {
       errors.push({ path: `${at}.value`, message: 'missing (required)' });
     } else {
@@ -280,8 +285,18 @@ function validateExport(input: unknown, path: string, errors: SpecError[]): void
     return;
   }
 
-  const { colorSpace, hexFallback, precision, prefix, groups, steps, slug, flatten, separator } =
-    input;
+  const {
+    colorSpace,
+    hexFallback,
+    precision,
+    prefix,
+    groups,
+    steps,
+    slug,
+    flatten,
+    separator,
+    aliases,
+  } = input;
 
   if (colorSpace !== undefined && colorSpace !== 'oklch' && colorSpace !== 'srgb')
     errors.push({
@@ -323,6 +338,12 @@ function validateExport(input: unknown, path: string, errors: SpecError[]): void
     errors.push({
       path: `${path}.flatten`,
       message: `expected a boolean, got ${describe(flatten)}`,
+    });
+
+  if (aliases !== undefined && !(ALIAS_MODES as readonly unknown[]).includes(aliases))
+    errors.push({
+      path: `${path}.aliases`,
+      message: `expected one of ${ALIAS_MODES.join(', ')}, got ${describe(aliases)}`,
     });
 
   if (separator !== undefined && (typeof separator !== 'string' || separator === ''))

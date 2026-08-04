@@ -127,6 +127,31 @@ Routing hits every named colour exactly, so a conflict never shows up as a misse
 
 Deliberate hue torsion lives in the hue _curve_, so a seed sitting on it pulls nothing — anything reported here is the colours disagreeing with the family they're in. Two colours claiming the same step is refused outright at validation, since one of them would otherwise be silently discarded.
 
+#### Aliases
+
+`green.600` is where a colour sits on its ramp. `brand-green` is what a developer types. A named colour can carry an `alias` — a second way to point at it in the token file:
+
+```json
+{ "name": "Acme Forest Green", "alias": "brand green", "value": "#0f7b4a", "step": "600" }
+```
+
+which emits, flat at the root beside the family groups:
+
+```json
+{
+  "green": { "$type": "color", "600": { "$value": "#0f7b4a" } },
+  "brand-green": { "$type": "color", "$value": "{green.600}" }
+}
+```
+
+`alias` is deliberately separate from `name`. A name is prose on a swatch; an alias is an identifier. Deriving one from the other would give you `acme-forest-green`, which nobody wants to type. **Omitting it emits nothing** — token files never grow entries on their own.
+
+It's a DTCG reference, not a copy, so the alias _is_ that step and the two can't drift. The reference addresses the **emitted** tree, so it composes with the whole shaping layer — under `prefix: "color"` and a group rename it becomes `{color.brand.500}`, and under `flatten` it becomes `{signal-blue-500}`.
+
+`export.aliases` picks the form: `reference` (default), `inline` — the colour duplicated, for consumers that don't resolve references, like Figma variables — or `off`. An alias colliding with a family group, or two colours claiming one alias, is refused with both offenders named.
+
+> This is the one thing the export layer does that isn't pure reshape: an alias is a token that wasn't in the ramp. It stays at the root rather than nesting under a group, which keeps it an alias rather than the beginning of a semantic hierarchy.
+
 ### Templates
 
 The reusable half of a palette, saved under a name. Take any config apart and the fields fall into two piles: the brand's own colours and which families exist — the branding book, different every time — and the curves, step count, chroma shape and export block, which are house style and identical across every palette you'll make.

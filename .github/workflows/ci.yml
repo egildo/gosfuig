@@ -67,6 +67,16 @@ jobs:
           # The emitted config must stand alone: same tokens without --template.
           node dist/bin.js /tmp/gosfuig-t1/palette.config.json -o /tmp/gosfuig-t2 --no-dashboard
           diff /tmp/gosfuig-t1/tokens.json /tmp/gosfuig-t2/tokens.json
+          # Aliases land flat at the root as DTCG references into the ramp.
+          node -e "
+            const t = require('/tmp/gosfuig-t1/tokens.json');
+            const ref = t['brand-blue']?.\$value;
+            if (typeof ref !== 'string' || !ref.startsWith('{')) {
+              throw new Error('expected brand-blue to be a reference, got ' + JSON.stringify(ref));
+            }
+            const path = ref.slice(1, -1).split('.');
+            if (!path.reduce((n, k) => n?.[k], t)) throw new Error('alias points nowhere: ' + ref);
+          "
           # A template that changes the step count invalidates step NAMES, and
           # that must surface as a located spec error, not an engine crash.
           if node dist/bin.js examples/brand.config.json -o /tmp/gosfuig-t3 \

@@ -35,6 +35,8 @@ export interface FamilyState {
   hueTorsion: number;
   /** The brand's name for the seed colour, when the config gave one. */
   seedName?: string;
+  /** The seed's token alias, when the config gave one. */
+  seedAlias?: string;
   /**
    * Named colours beyond the first. The studio edits one per family; these are
    * carried verbatim so importing and re-exporting a richer config is lossless.
@@ -99,6 +101,7 @@ export function toSpec(f: FamilyState, steps: number): FamilySpec {
       lightness,
       chroma: f.chromaAuto ? undefined : chromaCurveOf(f),
       ...(f.seedName !== undefined ? { colorName: f.seedName } : {}),
+      ...(f.seedAlias !== undefined ? { colorAlias: f.seedAlias } : {}),
     });
     if (!f.carriedColors?.length) return spec;
     // Fold the seed and the carried colours into one list, so a family the
@@ -231,6 +234,7 @@ function stateFromSpec(fs: FamilySpec, steps: number): FamilyState {
     state.mode = 'seed';
     state.seed = toHex(parse(first!.value));
     if (first!.name !== undefined) state.seedName = first!.name;
+    if (first!.alias !== undefined) state.seedAlias = first!.alias;
     // No step, or an unusable one: let the engine place it by lightness, which
     // is what `seedStep` on a fresh family already means.
     if (Number.isInteger(idx) && idx >= 0 && idx < scale.count) state.seedStep = idx;

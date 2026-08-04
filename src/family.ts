@@ -52,6 +52,7 @@ export function hueDelta(from: number, to: number): number {
 /** A named color resolved to a step. */
 interface PinnedColor {
   name?: string;
+  alias?: string;
   oklch: Oklch;
 }
 
@@ -96,6 +97,7 @@ function placeColors(spec: FamilySpec, scale: Scale, baseL: number[]): Map<numbe
       placed.set(index, {
         oklch: r.oklch,
         ...(r.color.name !== undefined ? { name: r.color.name } : {}),
+        ...(r.color.alias !== undefined ? { alias: r.color.alias } : {}),
       });
     }
   }
@@ -158,8 +160,17 @@ export interface FamilySpec {
  * ramp rather than two unrelated families.
  */
 export interface NamedColor {
-  /** The brand's name for it, e.g. "Corporate Blue". */
+  /** The brand's name for it, e.g. "Corporate Blue". Prose, for humans. */
   name?: string;
+  /**
+   * A second way to point at this color in the token file, e.g. "brand green".
+   *
+   * Deliberately separate from `name`. A name is prose on a swatch; an alias is
+   * an identifier someone types. Deriving one from the other gives you
+   * `acme-signal-blue`, which nobody wants to write. Omitted means no alias is
+   * emitted at all — token files never grow entries on their own.
+   */
+  alias?: string;
   /** Any CSS color or OKLCH. */
   value: string | Oklch;
   /**
@@ -199,6 +210,8 @@ export interface Swatch {
   locked: boolean;
   /** The brand's name for this color, when it has one. */
   colorName?: string;
+  /** The token alias pointing at this color, when it has one. */
+  alias?: string;
   /**
    * How far this named color pulled the base curve, per axis. Pinned steps only.
    *
@@ -323,6 +336,7 @@ export function resolveFamily(spec: FamilySpec): Family {
       css: toCss(oklch),
       locked: !!pin,
       ...(pin?.name !== undefined ? { colorName: pin.name } : {}),
+      ...(pin?.alias !== undefined ? { alias: pin.alias } : {}),
       ...(pin ? { pull: { l: r.l, c: r.c, h: r.h } } : {}),
     };
   });
@@ -360,6 +374,8 @@ export interface SeedSpec {
    * its neighbors rotate around it. Default 0 (constant hue).
    */
   hueTorsion?: number;
+  /** A token alias for the seed, e.g. "brand green". See `NamedColor.alias`. */
+  colorAlias?: string;
   /** Lightness ramp. Defaults to the standard bright-tint -> deep-shade ramp. */
   lightness?: CurveSpec;
   /**
@@ -405,8 +421,17 @@ export function seedFamily(spec: SeedSpec): FamilySpec {
     steps: spec.steps,
     // Named form when the seed has a name, terse form otherwise — so specs that
     // don't care about naming keep serializing exactly as they did.
-    ...(spec.colorName !== undefined
-      ? { colors: [{ name: spec.colorName, value: seed, step: scale.names[idx]! }] }
+    ...(spec.colorName !== undefined || spec.colorAlias !== undefined
+      ? {
+          colors: [
+            {
+              ...(spec.colorName !== undefined ? { name: spec.colorName } : {}),
+              ...(spec.colorAlias !== undefined ? { alias: spec.colorAlias } : {}),
+              value: seed,
+              step: scale.names[idx]!,
+            },
+          ],
+        }
       : { locks: { [scale.names[idx]!]: seed } as FamilySpec['locks'] }),
   };
 }
