@@ -199,6 +199,15 @@ export interface Swatch {
   locked: boolean;
   /** The brand's name for this color, when it has one. */
   colorName?: string;
+  /**
+   * How far this named color pulled the base curve, per axis. Pinned steps only.
+   *
+   * A brand color that sits close to where the ramp was already going pulls
+   * almost nothing. One pinned somewhere its lightness does not belong drags
+   * the whole curve to reach it, and every other step pays for it — which is
+   * the difference between a palette built around a color and one fighting it.
+   */
+  pull?: { l: number; c: number; h: number };
 }
 
 /** How much chroma the gamut cost this swatch. Zero when nothing was lost. */
@@ -314,6 +323,7 @@ export function resolveFamily(spec: FamilySpec): Family {
       css: toCss(oklch),
       locked: !!pin,
       ...(pin?.name !== undefined ? { colorName: pin.name } : {}),
+      ...(pin ? { pull: { l: r.l, c: r.c, h: r.h } } : {}),
     };
   });
 

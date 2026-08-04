@@ -56,6 +56,17 @@ export {
   type SpecResult,
 } from './spec.js';
 
+// Templates: the reusable half of a palette, saved under a name
+export {
+  BUILTIN_TEMPLATES,
+  findTemplate,
+  templateNames,
+  applyTemplate,
+  forceTemplate,
+  isTemplate,
+  type Template,
+} from './template.js';
+
 // The config file format (one reader and one writer, shared by CLI and studio)
 export {
   stringifyConfig,

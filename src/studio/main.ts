@@ -26,6 +26,7 @@ import {
 import { toW3CTokens } from '../export/w3c.js';
 import { parse, toHex } from '../color/oklch.js';
 import { stringifyConfig, parseConfig } from '../config.js';
+import { BUILTIN_TEMPLATES, findTemplate, type Template } from '../template.js';
 import type { W3CExportOptions } from '../export/w3c.js';
 import {
   type FamilyState,
@@ -197,6 +198,57 @@ async function loadConfigFile(file: File): Promise<void> {
   }
 }
 
+/**
+ * House-style picker.
+ *
+ * The CLI applies a template as a base the config overrides; here it has to be
+ * an edit, because a studio family always carries explicit curves and a silent
+ * base would change nothing at all. So this writes the template's values into
+ * every family, visibly, and says what it did.
+ */
+function templatePicker(): HTMLElement {
+  const sel = el('select', { 'aria-label': 'apply a house style' }) as HTMLSelectElement;
+  sel.append(el('option', { value: '' }, ['house style…']));
+  for (const t of BUILTIN_TEMPLATES) {
+    sel.append(el('option', { value: t.name, title: t.description ?? '' }, [t.name]));
+  }
+  sel.addEventListener('change', () => {
+    const t = findTemplate(sel.value);
+    sel.value = '';
+    if (!t) return;
+    applyTemplateToState(t);
+    note(`applied "${t.name}" to all ${families.length} families — ${t.description ?? ''}`);
+  });
+  return sel;
+}
+
+/** Write a template's policy into every family's sliders. */
+function applyTemplateToState(t: Template): void {
+  if (t.steps !== undefined) steps = t.steps;
+  for (const f of families) {
+    if (t.lightness?.kind === 'ramp') {
+      f.lightMax = t.lightness.max;
+      f.lightMin = t.lightness.min;
+      f.gamma = t.lightness.gamma ?? 1;
+      f.sCurve = t.lightness.sCurve ?? 0;
+    }
+    if (t.chroma !== undefined && typeof t.chroma !== 'number' && t.chroma.kind === 'bump') {
+      f.chroma = t.chroma.peak;
+      f.tPeak = t.chroma.tPeak ?? f.tPeak;
+      f.chromaLight = t.chroma.light ?? f.chromaLight;
+      f.chromaDark = t.chroma.dark ?? f.chromaDark;
+      f.chromaAuto = false;
+    } else if (typeof t.chroma === 'number') {
+      f.chroma = t.chroma;
+      f.chromaAuto = false;
+    }
+  }
+  if (t.export !== undefined) exportShape = t.export;
+  openGrid = -1;
+  scheduleSave();
+  mount();
+}
+
 function resetSession(): void {
   paletteName = 'gosfuig studio';
   adoptSession({ steps: DEFAULT_STEPS, families: defaultFamilies(), export: undefined });
@@ -253,6 +305,7 @@ function mount(): void {
     el('div', { class: 'row' }, [
       el('button', { class: 'btn add', onclick: addFamily }, ['+ add family']),
       el('button', { class: 'btn accent', onclick: showTokens }, ['export W3C tokens']),
+      templatePicker(),
       el('span', { class: 'gap' }),
       el(
         'button',

@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { resolveFamily, seedFamily, hueDelta } from '../src/family.js';
 import { stringifyConfig, parseConfig } from '../src/config.js';
 import { validateFamilySpec } from '../src/spec.js';
+import { familyNotes, summarizeNotes } from '../src/validate.js';
 import { fromConfig, toSpec } from '../src/studio/model.js';
 
 /** Largest absolute step-to-step jump in one axis, ignoring the pinned steps. */
@@ -327,5 +328,127 @@ describe('named colours survive the studio', () => {
     expect(state.seed).toBe('#1d4ed8');
     expect(state.seedStep).toBe(8);
     expect(state.seedName).toBeUndefined();
+  });
+});
+
+describe('conflicts between named colours', () => {
+  it('records how far each colour pulled the curve', () => {
+    const easy = resolveFamily({
+      name: 'b',
+      hue: 259,
+      colors: [{ value: '#3b82f6', step: '400' }],
+    });
+    const hard = resolveFamily({
+      name: 'b',
+      hue: 259,
+      colors: [{ value: '#3b82f6', step: '800' }],
+    });
+    // The same colour, placed where it belongs and where it does not.
+    expect(Math.abs(easy.swatches.find((s) => s.locked)!.pull!.l)).toBeLessThan(0.01);
+    expect(hard.swatches.find((s) => s.locked)!.pull!.l).toBeGreaterThan(0.3);
+  });
+
+  it('leaves pull undefined on steps that are not named colours', () => {
+    const fam = resolveFamily({ name: 'b', hue: 259, colors: [{ value: '#3b82f6', step: '400' }] });
+    for (const s of fam.swatches) {
+      if (s.locked) expect(s.pull).toBeDefined();
+      else expect(s.pull).toBeUndefined();
+    }
+  });
+
+  it('says nothing when a colour sits where the ramp was already going', () => {
+    const notes = familyNotes(
+      resolveFamily({ name: 'b', hue: 259, colors: [{ value: '#3b82f6', step: '400' }] }),
+    );
+    expect(notes.strained).toEqual([]);
+  });
+
+  it('names the colour that is dragging the ramp', () => {
+    const fam = resolveFamily({
+      name: 'b',
+      hue: 259,
+      colors: [{ name: 'Signal Blue', value: '#3b82f6', step: '800' }],
+    });
+    const notes = familyNotes(fam);
+    expect(notes.strained).toHaveLength(1);
+    expect(notes.strained[0]).toMatchObject({ step: '800', colorName: 'Signal Blue' });
+
+    const line = summarizeNotes(fam)!;
+    expect(line).toContain('"Signal Blue" (800) pulls the ramp');
+    expect(line).toContain('lightness by +0.3');
+    expect(line).toContain('may belong on another step');
+  });
+
+  it('reports a hue forced far from the family it sits in', () => {
+    const fam = resolveFamily({
+      name: 'blue',
+      hue: 259,
+      colors: [{ name: 'House Teal', value: '#0d5c63', step: '700' }],
+    });
+    const strain = familyNotes(fam).strained[0]!;
+    expect(strain.hue).toBeCloseTo(-55, 0);
+    expect(summarizeNotes(fam)!).toContain('hue by -55°');
+  });
+
+  it('does not mistake deliberate hue torsion for a conflict', () => {
+    // Torsion lives in the hue curve, so the seed sits exactly on it and pulls
+    // the hue by nothing at all, however far the ramp rotates.
+    const fam = resolveFamily(
+      seedFamily({ name: 'brand', seed: '#1d4ed8', step: '700', hueTorsion: 40 }),
+    );
+    const pinned = fam.swatches.find((s) => s.locked)!;
+    expect(pinned.pull!.h).toBe(0);
+    expect(pinned.pull!.c).toBeCloseTo(0, 6);
+    expect(summarizeNotes(fam)).not.toContain('hue by');
+  });
+
+  /**
+   * `seedFamily` derives hue and chroma from the seed, but NOT lightness — it
+   * places the seed at a step you choose (the middle one by default) whatever
+   * that step's natural lightness is. So a seed can drag its own family, and the
+   * strain report says so.
+   *
+   * #1d4ed8 is L 0.49; the default ramp has 600 at L 0.46 and 700 at L 0.38, so
+   * pinning it at 700 pulls the curve by ~0.105. Nothing is broken here — it is
+   * the report doing its job, and the concrete argument for letting the engine
+   * negotiate the step rather than taking it on faith.
+   */
+  it('reports a seed dragging its own family, since seedFamily ignores lightness', () => {
+    const fam = resolveFamily(seedFamily({ name: 'brand', seed: '#1d4ed8', step: '700' }));
+    expect(fam.swatches.find((s) => s.locked)!.pull!.l).toBeCloseTo(0.105, 2);
+    expect(summarizeNotes(fam)!).toContain('pulls the ramp lightness');
+
+    // Placed where its lightness actually belongs, it pulls almost nothing.
+    const easy = resolveFamily({ name: 'brand', hue: 264, colors: [{ value: '#1d4ed8' }] });
+    expect(Math.abs(easy.swatches.find((s) => s.locked)!.pull!.l)).toBeLessThan(0.04);
+    expect(familyNotes(easy).strained).toEqual([]);
+  });
+
+  it('refuses two colours on one step, before the engine sees them', () => {
+    const r = validateFamilySpec({
+      name: 'b',
+      hue: 259,
+      colors: [
+        { name: 'A', value: '#3b82f6', step: '500' },
+        { name: 'B', value: '#172554', step: '500' },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errors[0]!.path).toBe('family.colors[1].step');
+      expect(r.errors[0]!.message).toContain('already claimed');
+    }
+  });
+
+  it('allows an index and a name that mean the same step to be caught', () => {
+    const r = validateFamilySpec({
+      name: 'b',
+      hue: 259,
+      colors: [
+        { value: '#3b82f6', step: '700' },
+        { value: '#172554', step: 8 },
+      ],
+    });
+    expect(r.ok).toBe(false);
   });
 });

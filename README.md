@@ -114,6 +114,63 @@ Chroma towered at the pinned step and dropped off a cliff; with two colours of d
 
 One consequence worth knowing: routing makes the _request_ more ambitious, so more steps get gamut-clamped than before — the demo blue went from 1 clamped step to 7. The realized ramp is smoother and more colourful than it was; the engine simply now asks for more than sRGB can give in the light half. This is the strongest argument yet for expressing chroma relative to the per-hue cusp.
 
+#### When colours disagree
+
+Routing hits every named colour exactly, so a conflict never shows up as a missed colour — it shows up as a **distorted ramp**. A colour pinned where its lightness doesn't belong drags the whole curve, and every other step pays for it. Each swatch records how far it pulled:
+
+```
+  dragged: FAIL — worst 700 on 200 = 2.20 WCAG; 8 pair(s) below AA
+    ↳ "Signal Blue" (800) pulls the ramp lightness by +0.312 — it may belong on another step
+  wrong hue: FAIL — worst 700 on 200 = 4.10 WCAG
+    ↳ "House Teal" (700) pulls the ramp lightness by +0.051 and hue by -55° — it may belong on another step
+```
+
+Deliberate hue torsion lives in the hue _curve_, so a seed sitting on it pulls nothing — anything reported here is the colours disagreeing with the family they're in. Two colours claiming the same step is refused outright at validation, since one of them would otherwise be silently discarded.
+
+### Templates
+
+The reusable half of a palette, saved under a name. Take any config apart and the fields fall into two piles: the brand's own colours and which families exist — the branding book, different every time — and the curves, step count, chroma shape and export block, which are house style and identical across every palette you'll make.
+
+A template is the second pile. It is **not a second file format**: it resolves _into_ a `PaletteSpec`, and the config always wins where the two disagree.
+
+```sh
+gosfuig --templates                                    # list the built-ins
+gosfuig brand.json --template contrast                 # apply a house style
+gosfuig brand.json --template ./house.json             # or your own
+gosfuig brand.json --template contrast --emit-config   # freeze it in
+```
+
+| built-in   | what it is                                                           |
+| ---------- | -------------------------------------------------------------------- |
+| `default`  | the shipped defaults: 12 steps, gentle S-curve                       |
+| `contrast` | stronger S-curve, for palettes that must clear AA with room to spare |
+| `flat`     | linear lightness, evenly spaced steps, tighter contrast              |
+| `fine`     | 16 steps on a wider range                                            |
+
+So a new brand is a short file — house style, plus the colours you own:
+
+```json
+{
+  "families": [
+    { "name": "blue", "hue": 259, "colors": [{ "name": "Acme Blue", "value": "#3b82f6" }] },
+    { "name": "green", "hue": 150, "colors": [{ "name": "Acme Green", "value": "#0f7b4a" }] }
+  ]
+}
+```
+
+**`--emit-config` resolves the template away.** The written config carries the merged values and no memory of where they came from, so it stands on its own and produces byte-identical tokens without `--template`. That's what keeps a project portable despite presets living outside it.
+
+**One interaction to know about.** Step _names_ are scale-dependent — `500` is on the 12-step scale and not on the 16-step one — so a template that changes `steps` invalidates any colour that named its step. That's reported as an ordinary located error:
+
+```
+gosfuig: invalid palette spec (1 problem)
+  families[0].colors[0].step: not a step of this 16-step scale (names: 50, 100, 150, …)
+```
+
+A colour that leaves placement to the engine has no such problem, which is a good reason to omit `step` when you want a config that travels across house styles.
+
+The studio has a **house style** picker that applies a template as a visible edit, because a studio family always carries explicit curves and a silent base would change nothing at all.
+
 ### Seed-driven families
 
 Instead of dialing a hue, hand `seedFamily` a fixed color. It derives the family's hue from the seed, derives the chroma level so the ramp passes through the seed's own chroma, and pins the seed at its step:

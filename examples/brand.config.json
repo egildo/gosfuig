@@ -1,0 +1,24 @@
+{
+  "$version": 1,
+  "name": "acme",
+  "families": [
+    {
+      "name": "blue",
+      "hue": 259,
+      "colors": [
+        { "name": "Acme Signal Blue", "value": "#3b82f6", "step": "500" },
+        { "name": "Acme Deep Navy", "value": "#172554" }
+      ]
+    },
+    {
+      "name": "green",
+      "hue": 150,
+      "colors": [{ "name": "Acme Green", "value": "#0f7b4a" }]
+    },
+    {
+      "name": "gray",
+      "hue": 260,
+      "chroma": 0.01
+    }
+  ]
+}

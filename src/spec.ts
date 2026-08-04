@@ -181,6 +181,9 @@ function validateColors(
       ? makeScale(steps ?? STEP_COUNT)
       : null;
 
+  /** step index -> the index of the color that claimed it first. */
+  const claimed = new Map<number, number>();
+
   colors.forEach((color, i) => {
     const at = `${path}[${i}]`;
     if (!isRecord(color)) {
@@ -205,6 +208,19 @@ function validateColors(
           path: `${at}.step`,
           message: `not a step of this ${scale.count}-step scale (names: ${scale.names.join(', ')}; or an index 0..${scale.count - 1})`,
         });
+      } else {
+        // Two colors on one step means one of them is silently discarded, which
+        // is the worst outcome available. Caught here, before the engine.
+        const index = scale.names.includes(key) ? scale.indexOf(key) : Number(key);
+        const clash = claimed.get(index);
+        if (clash !== undefined) {
+          errors.push({
+            path: `${at}.step`,
+            message: `step ${scale.names[index]} is already claimed by ${path}[${clash}] — two colors cannot share a step`,
+          });
+        } else {
+          claimed.set(index, i);
+        }
       }
     }
 

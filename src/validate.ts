@@ -96,16 +96,65 @@ export interface FamilyNotes {
   worstLoss: number;
   /** Steps where lightness stops strictly decreasing. */
   monotoneBreaks: string[];
+  /**
+   * Named colors that dragged the ramp to reach them.
+   *
+   * Routing hits every named color exactly, so a conflict never shows up as a
+   * missed color — it shows up as a distorted ramp. A color pinned where its
+   * lightness does not belong pulls the whole curve, and every other step pays.
+   */
+  strained: ColorStrain[];
 }
+
+export interface ColorStrain {
+  step: string;
+  colorName?: string;
+  /** Lightness the curve was dragged by, at this color's own step. */
+  lightness: number;
+  /** Degrees the hue was rotated to reach it. */
+  hue: number;
+}
+
+/**
+ * How far a named color may pull the curve before it is worth mentioning.
+ *
+ * The default 12-step ramp spans L 0.98..0.18, so one step is about 0.073.
+ * Half a step out of place is where a pin starts visibly bending the ramp
+ * rather than sitting on it.
+ */
+export const STRAIN_LIGHTNESS = 0.04;
+
+/**
+ * Degrees of hue a named color may force before it is worth mentioning.
+ *
+ * Deliberate torsion lives in the hue curve and produces no pull at all, so
+ * anything reported here is the colors disagreeing with the family they are in.
+ */
+export const STRAIN_HUE = 12;
 
 export function familyNotes(family: Family): FamilyNotes {
   const clamped = family.swatches
     .filter((s) => s.clamped)
     .map((s) => ({ step: s.name, requested: s.requested.c, realized: s.oklch.c }));
+
+  const strained = family.swatches
+    .filter(
+      (s) =>
+        s.pull !== undefined &&
+        (Math.abs(s.pull.l) >= STRAIN_LIGHTNESS || Math.abs(s.pull.h) >= STRAIN_HUE),
+    )
+    .map((s) => ({
+      step: s.name,
+      ...(s.colorName !== undefined ? { colorName: s.colorName } : {}),
+      lightness: s.pull!.l,
+      hue: s.pull!.h,
+    }));
+
   return {
     clamped,
     worstLoss: clamped.reduce((m, c) => Math.max(m, c.requested - c.realized), 0),
     monotoneBreaks: family.monotoneBreaks,
+    strained,
   };
 }
 
@@ -153,6 +202,16 @@ export function summarizeNotes(family: Family, opts: { minLoss?: number } = {}):
       `${minor} step(s) clamped slightly [${n.clamped.map((c) => c.step).join(', ')}] — ` +
         `under ${minLoss} chroma, typical at the ends of the ramp`,
     );
+  }
+
+  for (const s of n.strained) {
+    const who = s.colorName ? `"${s.colorName}" (${s.step})` : `the color at ${s.step}`;
+    const how: string[] = [];
+    if (Math.abs(s.lightness) >= STRAIN_LIGHTNESS)
+      how.push(`lightness by ${s.lightness > 0 ? '+' : ''}${s.lightness.toFixed(3)}`);
+    if (Math.abs(s.hue) >= STRAIN_HUE)
+      how.push(`hue by ${s.hue > 0 ? '+' : ''}${s.hue.toFixed(0)}°`);
+    parts.push(`${who} pulls the ramp ${how.join(' and ')} — it may belong on another step`);
   }
 
   if (n.monotoneBreaks.length > 0) {
