@@ -41,18 +41,55 @@ export function normalize(o: Oklch): Oklch {
   return { l: clamp(o.l, 0, 1), c: Math.max(0, o.c), h };
 }
 
-/** Is this OKLCH color displayable in sRGB without clipping? */
+/**
+ * How far an sRGB channel may sit outside [0,1] and still count as displayable.
+ *
+ * Half a byte step. The point is that `toRgb255` clamps and rounds, so a channel
+ * at -0.0008 and a channel at exactly 0 produce the same byte — they are the
+ * same displayable color, and treating one of them as out of gamut is wrong.
+ *
+ * This is not pedantry. A hex color converted to OKLCH and back lands a hair
+ * outside on any channel that was at 0 or 255, and a strict test then hands it
+ * to the chroma clamp, which "fixes" a color that was already perfect by
+ * desaturating it hard: #0000ff came back as #0031e5, a ΔE of 0.047. Saturated
+ * primaries are exactly where brand colors live, so a strict test breaks the
+ * one promise the engine makes about them.
+ */
+const GAMUT_EPSILON = 1 / 512;
+
+/** Largest amount by which any sRGB channel falls outside [0,1]. 0 when inside. */
+function srgbOvershoot(o: Oklch): number {
+  const c = rgb({ mode: 'oklch', ...o });
+  return Math.max(0, -c.r, -c.g, -c.b, c.r - 1, c.g - 1, c.b - 1);
+}
+
+/**
+ * Is this OKLCH color displayable in sRGB?
+ *
+ * True when every channel is inside [0,1] to within half a byte — i.e. when the
+ * color survives the trip to bytes unchanged.
+ */
 export function isInGamut(o: Oklch): boolean {
-  return inSrgb({ mode: 'oklch', ...o });
+  return srgbOvershoot(normalize(o)) <= GAMUT_EPSILON;
+}
+
+/** Strict membership, with no tolerance. Exported for tests and diagnostics. */
+export function isStrictlyInGamut(o: Oklch): boolean {
+  return inSrgb({ mode: 'oklch', ...normalize(o) });
 }
 
 /**
  * Gamut-map into sRGB by reducing chroma (preserving L and H). Returns an
  * OKLCH color guaranteed to be displayable. This is culori's chroma-clamp,
  * the standard CSS Color 4 gamut-mapping approach for OKLCH.
+ *
+ * A color that is already displayable is returned untouched — never routed
+ * through the clamp, which cannot be trusted to be a no-op at the boundary.
  */
 export function gamutClamp(o: Oklch): Oklch {
-  const clamped = clampChroma({ mode: 'oklch', ...normalize(o) }, 'oklch', 'rgb');
+  const n = normalize(o);
+  if (isInGamut(n)) return n;
+  const clamped = clampChroma({ mode: 'oklch', ...n }, 'oklch', 'rgb');
   return { l: clamped.l, c: clamped.c, h: clamped.h ?? 0 };
 }
 

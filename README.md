@@ -263,7 +263,7 @@ cyan: PASS — worst 700 on 200 = 5.03 WCAG (APCA 52)
 
 `summarizeNotes` ranks by `MINOR_CHROMA_LOSS` (0.01) so a float-level difference doesn't read like a real one; the underlying data is exact regardless.
 
-> **Known defect, deliberately not fixed here.** With the shipped defaults the lightest step clamps at **50 of 72 hues**, by up to 0.0157: `defaultChroma`'s floor of C 0.025 sits above what L 0.98 — `defaultLightness`'s `max` — can hold, which is only 0.0093–0.0705 depending on hue. The fix is to the defaults (a floor near 0.009, or a `lightMax` near 0.95 where 0.0236 is reachable), and it would move the lightest step of every existing palette. It is pinned by a characterization test rather than papered over.
+> **Known defect, deliberately not fixed here.** With the shipped defaults the lightest step clamps at **49 of 72 hues**, by up to 0.0157: `defaultChroma`'s floor of C 0.025 sits above what L 0.98 — `defaultLightness`'s `max` — can hold, which is only 0.0093–0.0705 depending on hue. The fix is to the defaults (a floor near 0.009, or a `lightMax` near 0.95 where 0.0236 is reachable), and it would move the lightest step of every existing palette. It is pinned by a characterization test rather than papered over.
 
 ### The contract
 

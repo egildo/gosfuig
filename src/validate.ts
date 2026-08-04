@@ -168,7 +168,7 @@ export function familyNotes(family: Family): FamilyNotes {
  * counts what it demotes — nothing is hidden, only ranked.
  *
  * Note what it does NOT paper over: with the shipped defaults the lightest step
- * clamps at 50 of 72 hues by up to 0.0157, which is above this threshold and so
+ * clamps at 49 of 72 hues by up to 0.0157, which is above this threshold and so
  * is reported as a real loss. That is a defect in the defaults — `defaultChroma`
  * asks for a floor of C 0.025 at `defaultLightness`'s L 0.98, where sRGB allows
  * only 0.0093–0.0705 by hue — and the right fix is to the defaults, not to this

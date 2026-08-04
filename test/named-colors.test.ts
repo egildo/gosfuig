@@ -9,6 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { resolveFamily, seedFamily, hueDelta } from '../src/family.js';
+import { parse, toHex, gamutClamp, isInGamut } from '../src/color/oklch.js';
 import { stringifyConfig, parseConfig } from '../src/config.js';
 import { validateFamilySpec } from '../src/spec.js';
 import { familyNotes, summarizeNotes } from '../src/validate.js';
@@ -450,5 +451,136 @@ describe('conflicts between named colours', () => {
       ],
     });
     expect(r.ok).toBe(false);
+  });
+});
+
+/**
+ * The promise: a named colour is what you said it was, whatever the curves do.
+ *
+ * Two distinct things could break it, and only one of them is the curves.
+ */
+describe('a named colour survives the curves', () => {
+  const LIGHTNESS_GRID = [0.9, 0.94, 0.98, 0.995].flatMap((max) =>
+    [0.08, 0.18, 0.3].flatMap((min) =>
+      [0.6, 1.0, 1.6].flatMap((gamma) =>
+        [0, 0.13, 0.5].map((sCurve) => ({ kind: 'ramp' as const, max, min, gamma, sCurve })),
+      ),
+    ),
+  );
+
+  it('is byte-identical across every lightness curve, when it names its step', () => {
+    const seen = new Set<string>();
+    const steps = new Set<string>();
+    for (const lightness of LIGHTNESS_GRID) {
+      const fam = resolveFamily({
+        name: 'b',
+        hue: 259,
+        lightness,
+        colors: [{ value: '#1d4ed8', step: '700' }],
+      });
+      const pinned = fam.swatches.find((s) => s.locked)!;
+      seen.add(pinned.hex);
+      steps.add(pinned.name);
+    }
+    expect(LIGHTNESS_GRID.length).toBe(108);
+    expect([...seen]).toEqual(['#1d4ed8']);
+    expect([...steps]).toEqual(['700']);
+  });
+
+  it('is byte-identical across chroma and hue curves too', () => {
+    const seen = new Set<string>();
+    for (const peak of [0.02, 0.08, 0.14, 0.25]) {
+      for (const tPeak of [0.2, 0.6, 0.9]) {
+        for (const hue of [0, 90, 180, 270]) {
+          const fam = resolveFamily({
+            name: 'b',
+            hue,
+            chroma: { kind: 'bump', peak, tPeak },
+            colors: [{ value: '#1d4ed8', step: '700' }],
+          });
+          seen.add(fam.swatches.find((s) => s.locked)!.hex);
+        }
+      }
+    }
+    expect([...seen]).toEqual(['#1d4ed8']);
+  });
+
+  /**
+   * The one thing the curves DO move: an unstepped colour is placed by
+   * lightness fit, so reshaping the lightness ramp reshapes what "closest"
+   * means. The colour is untouched; where it sits is not.
+   */
+  it('keeps its value but may change step when it left placement to the engine', () => {
+    const seen = new Set<string>();
+    const steps = new Set<string>();
+    for (const lightness of LIGHTNESS_GRID) {
+      const fam = resolveFamily({ name: 'b', hue: 259, lightness, colors: [{ value: '#1d4ed8' }] });
+      const pinned = fam.swatches.find((s) => s.locked)!;
+      seen.add(pinned.hex);
+      steps.add(pinned.name);
+    }
+    expect([...seen]).toEqual(['#1d4ed8']);
+    expect(steps.size).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * REGRESSION. A hex converted to OKLCH and back lands a hair outside sRGB on
+ * any channel that sat at 0 or 255 — pure blue's red channel comes back at
+ * -1e-17. A strict gamut test called that out-of-gamut and handed it to the
+ * chroma clamp, which "fixed" an already-perfect colour by desaturating it:
+ * #0000ff resolved as #0031e5, a ΔE of 0.047. 186 of 165,464 sampled colours
+ * drifted, every one of them with a 00 or ff channel — precisely where
+ * saturated brand colours live.
+ */
+describe('a named colour on the sRGB boundary is not "corrected"', () => {
+  const EDGE = [
+    '#0000ff',
+    '#0000fc',
+    '#0000de',
+    '#ff0000',
+    '#00ff00',
+    '#ffff00',
+    '#ff00ff',
+    '#00ffff',
+    '#000000',
+    '#ffffff',
+    '#00000d',
+  ];
+
+  it('survives the parse → clamp → hex round trip untouched', () => {
+    for (const hex of EDGE) expect(toHex(gamutClamp(parse(hex)))).toBe(hex);
+  });
+
+  it('resolves verbatim as a named colour, and is not reported as clamped', () => {
+    for (const hex of EDGE) {
+      const pinned = resolveFamily({
+        name: 'x',
+        hue: 200,
+        colors: [{ value: hex, step: '700' }],
+      }).swatches.find((s) => s.locked)!;
+      expect(pinned.hex, hex).toBe(hex);
+      expect(pinned.clamped, hex).toBe(false);
+    }
+  });
+
+  it('holds across a broad sweep of the cube', () => {
+    const drifted: string[] = [];
+    for (let r = 0; r < 256; r += 15) {
+      for (let g = 0; g < 256; g += 17) {
+        for (let b = 0; b < 256; b += 19) {
+          const hex = '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+          if (toHex(gamutClamp(parse(hex))) !== hex) drifted.push(hex);
+        }
+      }
+    }
+    expect(drifted).toEqual([]);
+  });
+
+  it('still gamut-maps a colour that is genuinely outside sRGB', () => {
+    // Far beyond any real display: chroma 0.4 at mid lightness.
+    const wild = { l: 0.55, c: 0.4, h: 200 };
+    expect(isInGamut(wild)).toBe(false);
+    expect(gamutClamp(wild).c).toBeLessThan(0.2);
   });
 });
