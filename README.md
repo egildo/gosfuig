@@ -229,19 +229,23 @@ gosfuig examples/sardegna.config.json -o tokens \
   --template examples/sardegna.template.json
 ```
 
-It exercises the whole model at once, and every piece earns its place:
+It exercises the whole model at once, and it was tuned in the studio and saved back — so it is also proof the round trip holds.
 
 - **The compound name is the family, the generic word is the alias.** `busachi red` is the ramp; `red` is what a developer types. The token file gets twelve ramps under `color.` and twelve aliases beside them — `red → {color.busachi-red.400}`.
-- **No colour names its step.** Each is placed where the ramp's own lightness comes closest, and no colour ends up pulling its family by more than 0.04 — there is a test asserting it.
-- **The template holds the house style**, the config holds the brand facts. Config wins: the neutrals override the template's chroma because a near-grey family has no business at peak 0.14.
+- **Every family carries its own character**: a hue ramp, a chroma bump, a lightness curve, and a deliberately chosen step for its colour. None of that is house style, so none of it belongs in the template.
+- **Every hue pull is zero.** Each family's hue ramp is threaded exactly through its own colour, so no colour has to drag the hue to be reached — there is a test asserting it.
 
 All twelve pass the contract, all twelve ramps stay monotone, and every brand colour is delivered at its reference hex. That last one is a test against the branding book's own values, so if the engine ever stops honouring a pinned colour it fails against your document rather than against itself.
 
-**Two honest notes it surfaced.**
+**Three things it surfaced.**
 
-The palette document's OKLCH and hex columns disagree by one byte for Nuragus Lime: `oklch(0.834 0.190 115.7)` renders `#c4d601`, the table's indicative hex says `#c4d600`. Chroma rounded to three decimals is not quite enough to round-trip a Pantone. gosfuig follows the OKLCH, since that is the anchor derived from the verified RGB.
+**The source document disagrees with itself by one byte.** Nuragus Lime's `oklch(0.834 0.190 115.7)` renders `#c4d601`, while the table's indicative hex says `#c4d600`. Chroma at three decimals is not quite enough to round-trip a Pantone. gosfuig follows the OKLCH, since that is the anchor derived from the verified RGB.
 
-And **"chroma clamped" does not mean "bad ramp"**. Yellow and lime clamp at most steps here, because those hues hold roughly 0.098 where purple holds 0.238 — a factor of 2.4. The delivered ramps ride the gamut ceiling smoothly and look right; what is wrong is the _request_, which asks for a chroma that hue never had. Per-family peaks measured at 85% of each hue's cusp improve it a lot (purple went from clamped to clean) but cannot fix it, because the routing residual is linear in step index and knows nothing about the gamut. This is the clearest argument yet for expressing chroma as a fraction of the cusp rather than an absolute.
+**A deliberately placed colour costs its curve, and the report says so.** Because the steps are chosen rather than fitted, several colours sit well away from where their lightness curve would have put them — La Maddalena Blue pulls its ramp by 0.271. That is an authoring decision, not a defect: the ramps stay monotone and pass. The strain report exists so the cost is visible rather than silent.
+
+**"Chroma clamped" does not mean "bad ramp".** Yellow and lime clamp at most steps, because those hues hold roughly 0.098 where purple holds 0.238 — a factor of 2.4, measured at the lightness the chroma bump peaks at. The delivered ramps ride the gamut ceiling smoothly and look right; what is wrong is the _request_, which asks for a chroma that hue never had. No per-family constant fixes it, because the routing residual is linear in step index and knows nothing about the gamut. This is the clearest argument for expressing chroma as a fraction of the cusp rather than an absolute.
+
+> Because every family here states its own curves, `applyTemplate` finds no gaps to fill and `sardegna.template.json` contributes only its `export` block. That is the studio/CLI asymmetry above, landing in practice.
 
 ### Seed-driven families
 
