@@ -25,6 +25,7 @@ const FAMILY_ORDER = [
   'chroma',
   'lightness',
   'steps',
+  'colors',
   'locks',
   '$extensions',
 ] as const;

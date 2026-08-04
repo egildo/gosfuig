@@ -82,6 +82,8 @@ export {
   resolveFamily,
   seedFamily,
   chromaLoss,
+  hueDelta,
+  type NamedColor,
   type FamilySpec,
   type SeedSpec,
   type Swatch,

@@ -685,3 +685,11 @@ input[type='color']:disabled {
 .export pre .v {
   color: var(--acc-lt);
 }
+
+/* The brand's own name for a colour, shown on its swatch. */
+.sw .brand {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.9;
+  line-height: 1.2;
+}

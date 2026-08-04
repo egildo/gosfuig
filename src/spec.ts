@@ -38,7 +38,17 @@ const CURVE_FIELDS: Record<string, { required: string[]; optional: string[] }> =
   bump: { required: ['peak'], optional: ['tPeak', 'light', 'dark'] },
 };
 
-const FAMILY_KEYS = ['name', 'hue', 'chroma', 'lightness', 'steps', 'locks', '$extensions'];
+const FAMILY_KEYS = [
+  'name',
+  'hue',
+  'chroma',
+  'lightness',
+  'steps',
+  'colors',
+  'locks',
+  '$extensions',
+];
+const NAMED_COLOR_KEYS = ['name', 'value', 'step'];
 const PALETTE_KEYS = ['name', 'families', 'export', '$version', '$extensions'];
 
 const EXPORT_KEYS = [
@@ -151,28 +161,83 @@ function validateLocks(
         continue;
       }
     }
-    if (isRecord(value)) {
-      for (const c of ['l', 'c', 'h']) {
-        if (!isFiniteNumber(value[c]))
-          errors.push({ path: `${path}.${key}.${c}`, message: `expected a finite number` });
+    validateColorValue(value, `${path}.${key}`, errors);
+  }
+}
+
+/** The named-color list: the brand facts a family's ramp must route through. */
+function validateColors(
+  colors: unknown,
+  steps: number | undefined,
+  path: string,
+  errors: SpecError[],
+): void {
+  if (!Array.isArray(colors)) {
+    errors.push({ path, message: `expected an array of named colors, got ${describe(colors)}` });
+    return;
+  }
+  const scale =
+    steps === undefined || (Number.isInteger(steps) && steps >= 2)
+      ? makeScale(steps ?? STEP_COUNT)
+      : null;
+
+  colors.forEach((color, i) => {
+    const at = `${path}[${i}]`;
+    if (!isRecord(color)) {
+      errors.push({ path: at, message: `expected an object, got ${describe(color)}` });
+      return;
+    }
+
+    if (color.name !== undefined && (typeof color.name !== 'string' || color.name.trim() === ''))
+      errors.push({ path: `${at}.name`, message: `expected a non-empty string` });
+
+    if (!('value' in color)) {
+      errors.push({ path: `${at}.value`, message: 'missing (required)' });
+    } else {
+      validateColorValue(color.value, `${at}.value`, errors);
+    }
+
+    // A missing step is legal — the engine places the color by lightness.
+    if (color.step !== undefined && scale) {
+      const key = String(color.step);
+      if (!scale.names.includes(key) && !isStepIndex(key, scale.count)) {
+        errors.push({
+          path: `${at}.step`,
+          message: `not a step of this ${scale.count}-step scale (names: ${scale.names.join(', ')}; or an index 0..${scale.count - 1})`,
+        });
       }
-      continue;
     }
-    if (typeof value !== 'string') {
-      errors.push({
-        path: `${path}.${key}`,
-        message: `expected a CSS color string or an {l,c,h} object, got ${describe(value)}`,
-      });
-      continue;
+
+    for (const key of Object.keys(color)) {
+      if (!NAMED_COLOR_KEYS.includes(key))
+        errors.push({
+          path: `${at}.${key}`,
+          message: `unknown field (expected ${NAMED_COLOR_KEYS.join(', ')})`,
+        });
     }
-    try {
-      parse(value);
-    } catch {
-      errors.push({
-        path: `${path}.${key}`,
-        message: `cannot parse color ${JSON.stringify(value)}`,
-      });
+  });
+}
+
+/** A CSS color string, or an {l,c,h} object. Shared by locks and named colors. */
+function validateColorValue(value: unknown, path: string, errors: SpecError[]): void {
+  if (isRecord(value)) {
+    for (const c of ['l', 'c', 'h']) {
+      if (!isFiniteNumber(value[c]))
+        errors.push({ path: `${path}.${c}`, message: `expected a finite number` });
     }
+    return;
+  }
+  if (typeof value !== 'string') {
+    errors.push({
+      path,
+      message: `expected a CSS color string or an {l,c,h} object, got ${describe(value)}`,
+    });
+    return;
+  }
+  try {
+    parse(value);
+  } catch {
+    errors.push({ path, message: `cannot parse color ${JSON.stringify(value)}` });
   }
 }
 
@@ -290,6 +355,9 @@ export function validateFamilySpec(input: unknown, path = 'family'): SpecResult<
       steps = input.steps as number;
     }
   }
+
+  if ('colors' in input && input.colors !== undefined)
+    validateColors(input.colors, steps, `${path}.colors`, errors);
 
   if ('locks' in input && input.locks !== undefined)
     validateLocks(input.locks, steps, `${path}.locks`, errors);

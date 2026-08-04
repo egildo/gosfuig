@@ -79,6 +79,41 @@ gosfuig: invalid palette spec (3 problems)
 
 Unknown fields are errors, not warnings, so a typo fails loudly instead of silently resolving to the default. `validatePaletteSpec` / `validateFamilySpec` return `{ ok, value }` or `{ ok, errors }` if you would rather not catch.
 
+### Named colours, and the path through them
+
+A branding book says "our blue is `#1d4ed8`". It does not say "our blue is step 700" — that's a decision someone makes afterwards. So a family declares the colours the brand already owns, and the ramp is built as a **path that passes through them**:
+
+```json
+{
+  "name": "blue",
+  "hue": 259,
+  "colors": [
+    { "name": "Acme Signal Blue", "value": "#3b82f6", "step": "500" },
+    { "name": "Acme Deep Navy", "value": "#172554" }
+  ]
+}
+```
+
+**Several per family is the normal case.** Brands routinely own a bright blue _and_ a deep navy; they become waypoints on one ramp rather than two unrelated families.
+
+**Omit `step` and the engine places the colour** where the ramp's own lightness already comes closest — the placement that pulls the curve least. `locks` still works as the terse form (`{ "700": "#1d4ed8" }`) and desugars into the same thing, without a name.
+
+The path is routed in **all three axes**. This matters more than it sounds: routing only lightness — which is what gosfuig did until now — leaves a pinned colour as a _spike_. Its neighbours keep the curve's chroma and hue while it jumps to its own:
+
+```
+                     before                    after
+step    C      H                  C      H
+ 500  0.138  259                0.206  263
+ 600  0.138  259                0.224  264
+ 700  0.217  264  ★             0.217  264  ★
+ 800  0.089  259                0.154  263
+ 900  0.061  259                0.094  261
+```
+
+Chroma towered at the pinned step and dropped off a cliff; with two colours of different hues the hue snapped away and back across a single step. Now the ramp arcs through them, and hue takes the short way round the circle — `350°` to `10°` is +20°, not −340°.
+
+One consequence worth knowing: routing makes the _request_ more ambitious, so more steps get gamut-clamped than before — the demo blue went from 1 clamped step to 7. The realized ramp is smoother and more colourful than it was; the engine simply now asks for more than sRGB can give in the light half. This is the strongest argument yet for expressing chroma relative to the per-hue cusp.
+
 ### Seed-driven families
 
 Instead of dialing a hue, hand `seedFamily` a fixed color. It derives the family's hue from the seed, derives the chroma level so the ramp passes through the seed's own chroma, and pins the seed at its step:
