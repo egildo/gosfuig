@@ -5,9 +5,9 @@
  *   gosfuig <config> [options]
  *
  * The config is a palette spec:
- *   - .json  — a plain PaletteSpec (hue/chroma numbers, locks; no curves)
- *   - .js/.mjs — an ES module whose default export is a PaletteSpec; this form
- *     can use seedFamily(), curve builders, and hue/chroma functions.
+ *   - .json  — a PaletteSpec. Curves are data, so JSON expresses everything.
+ *   - .js/.mjs — an ES module whose default export is a PaletteSpec, for when
+ *     you want seedFamily() and the curve builders to compute it for you.
  *
  * This module is side-effect free: it parses, runs, and returns an exit code.
  * The executable entry point is `bin.ts`, which is the only thing that touches
@@ -29,6 +29,7 @@ import {
   isTemplate,
   templateNames,
   BUILTIN_TEMPLATES,
+  templateFromSpec,
   type Template,
   parseConfig,
   stringifyConfig,
@@ -48,6 +49,8 @@ export interface Opts {
   template?: string;
   /** List the available templates and exit. */
   listTemplates: boolean;
+  /** Also write the config's reusable half out as a template file. */
+  emitTemplate?: string;
   /** `-h` / `--help` was passed. */
   help: boolean;
   /** Usage errors collected while parsing (unknown options, missing values). */
@@ -82,6 +85,7 @@ Options:
   --template <t>      Apply a house style as a base: a built-in name or a .json
                       file. The config always wins where the two disagree.
   --templates         List the built-in templates and exit
+  --emit-template <n> Also write this config's reusable half as <n>.template.json
   --strict            Exit 1 if any family fails the contract (CI-friendly)
   -h, --help          Show this help
 
@@ -130,6 +134,12 @@ export function parseArgs(argv: string[]): Opts {
       case '--templates':
         o.listTemplates = true;
         break;
+      case '--emit-template': {
+        const value = argv[++i];
+        if (value == null) o.errors.push(`gosfuig: ${a} needs a name for the template`);
+        else o.emitTemplate = value;
+        break;
+      }
       case '--strict':
         o.strict = true;
         break;
@@ -294,6 +304,14 @@ export async function runCli(argv: string[], io: CliIO = consoleIO): Promise<num
   }
   if (opts.emitConfig) {
     writeFileSync(join(opts.out, 'palette.config.json'), stringifyConfig(spec));
+  }
+  if (opts.emitTemplate !== undefined) {
+    // The reusable half only — curves, step count, export block. Brand colors
+    // are never written into a template.
+    writeFileSync(
+      join(opts.out, `${opts.emitTemplate}.template.json`),
+      JSON.stringify(templateFromSpec(spec, opts.emitTemplate), null, 2) + '\n',
+    );
   }
 
   const failed = results.filter((r) => !r.passes).length;

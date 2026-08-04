@@ -136,6 +136,28 @@ export function forceTemplate(spec: PaletteSpec, template: Template): PaletteSpe
   };
 }
 
+/**
+ * Extract the reusable half of a config as a template.
+ *
+ * The inverse of `applyTemplate`: it reads the house style back out of a
+ * palette you have already tuned, so a saved template is something you produce
+ * from real work rather than hand-write from the docs.
+ *
+ * Policy is taken from the first family that states it, because a template is
+ * one house style and a palette whose families disagree has no single answer.
+ * Brand facts — colors, hues, family names — are never included.
+ */
+export function templateFromSpec(spec: PaletteSpec, name: string, description?: string): Template {
+  const first = spec.families.find((f) => f.lightness !== undefined) ?? spec.families[0];
+  return {
+    name,
+    ...(description !== undefined ? { description } : {}),
+    ...(first?.steps !== undefined ? { steps: first.steps } : {}),
+    ...(first?.lightness !== undefined ? { lightness: first.lightness } : {}),
+    ...(spec.export !== undefined ? { export: spec.export } : {}),
+  };
+}
+
 const TEMPLATE_KEYS = ['name', 'description', 'steps', 'lightness', 'chroma', 'export'];
 
 /** Structural check for a template read from a file or from storage. */

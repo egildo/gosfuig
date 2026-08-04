@@ -63,6 +63,7 @@ export {
   templateNames,
   applyTemplate,
   forceTemplate,
+  templateFromSpec,
   isTemplate,
   type Template,
 } from './template.js';

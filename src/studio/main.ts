@@ -26,7 +26,14 @@ import {
 import { toW3CTokens } from '../export/w3c.js';
 import { parse, toHex } from '../color/oklch.js';
 import { stringifyConfig, parseConfig } from '../config.js';
-import { BUILTIN_TEMPLATES, findTemplate, type Template } from '../template.js';
+import {
+  BUILTIN_TEMPLATES,
+  findTemplate,
+  isTemplate,
+  templateFromSpec,
+  type Template,
+} from '../template.js';
+import { slugify } from '../export/shape.js';
 import type { W3CExportOptions } from '../export/w3c.js';
 import {
   type FamilyState,
@@ -173,6 +180,21 @@ function note(message: string, kind: 'ok' | 'bad' = 'ok'): void {
 
 // ---- config import / export ----
 let lastConfigUrl: string | null = null;
+let lastTemplateUrl: string | null = null;
+
+/** File picker for house-style templates, separate from the config one. */
+const templateInput = el('input', {
+  type: 'file',
+  accept: '.json,application/json',
+  class: 'hidden-file',
+  'aria-label': 'load a house style template',
+  onchange: (e) => {
+    const input = e.target as HTMLInputElement;
+    const f = input.files?.[0];
+    if (f) void loadTemplateFile(f);
+    input.value = '';
+  },
+}) as HTMLInputElement;
 
 function saveConfig(): void {
   const text = stringifyConfig(toConfig({ steps, families, export: exportShape }, paletteName));
@@ -212,14 +234,76 @@ function templatePicker(): HTMLElement {
   for (const t of BUILTIN_TEMPLATES) {
     sel.append(el('option', { value: t.name, title: t.description ?? '' }, [t.name]));
   }
+  // Saving and loading live in the same control as applying, so house styles
+  // have one place rather than three scattered buttons.
+  sel.append(
+    el('option', { value: SAVE_TEMPLATE, title: 'write these curves out as a .json template' }, [
+      '— save current as file…',
+    ]),
+    el('option', { value: LOAD_TEMPLATE, title: 'apply a .json template from disk' }, [
+      '— load from file…',
+    ]),
+  );
+
   sel.addEventListener('change', () => {
-    const t = findTemplate(sel.value);
+    const choice = sel.value;
     sel.value = '';
+    if (choice === SAVE_TEMPLATE) return saveTemplateFile();
+    if (choice === LOAD_TEMPLATE) return templateInput.click();
+    const t = findTemplate(choice);
     if (!t) return;
     applyTemplateToState(t);
     note(`applied "${t.name}" to all ${families.length} families — ${t.description ?? ''}`);
   });
   return sel;
+}
+
+/**
+ * Sentinel option values for the two non-template entries in the picker.
+ * Checked before any template lookup, and shaped so they cannot collide
+ * with a real template name.
+ */
+const SAVE_TEMPLATE = '__save__';
+const LOAD_TEMPLATE = '__load__';
+
+/**
+ * Write the current house style out as a template file.
+ *
+ * The same shape `gosfuig --template ./house.json` reads, so a style tuned here
+ * is directly reusable from the command line. Brand colors are never included —
+ * a template is the reusable half only.
+ */
+function saveTemplateFile(): void {
+  const suggested = paletteName.trim() === '' ? 'house' : paletteName.trim();
+  const name = window.prompt('Name this house style', suggested);
+  if (name === null || name.trim() === '') return;
+
+  const template = templateFromSpec(
+    toConfig({ steps, families, export: exportShape }),
+    name.trim(),
+  );
+  const text = JSON.stringify(template, null, 2) + '\n';
+  if (lastTemplateUrl) URL.revokeObjectURL(lastTemplateUrl);
+  lastTemplateUrl = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const file = `${slugify(name.trim())}.template.json`;
+  (el('a', { href: lastTemplateUrl, download: file }) as HTMLAnchorElement).click();
+  note(`saved ${file} — apply it anywhere with: gosfuig palette.json --template ./${file}`);
+}
+
+async function loadTemplateFile(file: File): Promise<void> {
+  try {
+    const raw: unknown = JSON.parse(await file.text());
+    if (!isTemplate(raw)) {
+      throw new Error(
+        `${file.name} is not a template (needs a "name", and only ` +
+          `name/description/steps/lightness/chroma/export)`,
+      );
+    }
+    applyTemplateToState(raw);
+    note(`applied "${raw.name}" from ${file.name} to all ${families.length} families`);
+  } catch (err) {
+    note(err instanceof Error ? err.message : String(err), 'bad');
+  }
 }
 
 /** Write a template's policy into every family's sliders. */
@@ -296,6 +380,7 @@ function mount(): void {
         ]),
         el('button', { class: 'btn accent', onclick: showTokens }, ['export tokens']),
         configInput,
+        templateInput,
       ]),
       configNote,
     ]),

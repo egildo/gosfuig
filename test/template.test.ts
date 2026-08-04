@@ -6,7 +6,7 @@
  * two resolve into an ordinary config that stands on its own afterwards.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -16,6 +16,7 @@ import {
   applyTemplate,
   forceTemplate,
   isTemplate,
+  templateFromSpec,
   type Template,
 } from '../src/template.js';
 import { resolvePalette } from '../src/palette.js';
@@ -290,5 +291,121 @@ describe('templates and named colours interact through the step scale', () => {
         await runCli([p, '-o', join(dir, t), '--template', t, '--no-dashboard'], captureIO()),
       ).toBe(0);
     }
+  });
+});
+
+describe('templateFromSpec — reading a house style back out', () => {
+  it('takes the reusable half and nothing else', () => {
+    const t = templateFromSpec(
+      {
+        name: 'acme',
+        families: [
+          {
+            name: 'blue',
+            hue: 259,
+            steps: 12,
+            lightness: { kind: 'ramp', max: 0.98, min: 0.18, sCurve: 0.2 },
+            colors: [{ name: 'Acme Blue', alias: 'brand blue', value: '#3b82f6' }],
+          },
+        ],
+        export: { prefix: 'color' },
+      },
+      'house',
+      'our style',
+    );
+
+    expect(t).toEqual({
+      name: 'house',
+      description: 'our style',
+      steps: 12,
+      lightness: { kind: 'ramp', max: 0.98, min: 0.18, sCurve: 0.2 },
+      export: { prefix: 'color' },
+    });
+    // Brand facts must never end up in a template.
+    expect(JSON.stringify(t)).not.toContain('3b82f6');
+    expect(JSON.stringify(t)).not.toContain('Acme');
+    expect(JSON.stringify(t)).not.toContain('259');
+  });
+
+  it('produces something isTemplate accepts and applyTemplate can use', () => {
+    const source = {
+      families: [
+        { name: 'a', hue: 1, steps: 8, lightness: { kind: 'ramp' as const, max: 0.9, min: 0.2 } },
+      ],
+    };
+    const t = templateFromSpec(source, 'house');
+    expect(isTemplate(t)).toBe(true);
+
+    const applied = applyTemplate(BRAND, t);
+    expect(applied.families[0]!.steps).toBe(8);
+    expect(applied.families[0]!.lightness).toEqual(source.families[0]!.lightness);
+  });
+
+  it('round-trips a house style: extract, apply, extract again', () => {
+    const tuned = applyTemplate(BRAND, findTemplate('contrast')!);
+    const extracted = templateFromSpec(tuned, 'house');
+    const reapplied = applyTemplate(BRAND, extracted);
+    expect(templateFromSpec(reapplied, 'house')).toEqual(extracted);
+  });
+
+  it('copes with a palette that states no policy at all', () => {
+    expect(templateFromSpec({ families: [{ name: 'a', hue: 1 }] }, 'bare')).toEqual({
+      name: 'bare',
+    });
+  });
+});
+
+describe('--emit-template', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'gosfuig-et-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('writes a template the CLI can read straight back', async () => {
+    const cfg = join(dir, 'brand.json');
+    writeFileSync(cfg, stringifyConfig(BRAND));
+    const out = join(dir, 'o');
+
+    await runCli(
+      [cfg, '-o', out, '--template', 'contrast', '--emit-template', 'house', '--no-dashboard'],
+      captureIO(),
+    );
+
+    const file = join(out, 'house.template.json');
+    const saved = loadTemplate(file);
+    expect(saved.name).toBe('house');
+    expect(saved.lightness).toEqual(findTemplate('contrast')!.lightness);
+
+    // Applying the saved file gives the same tokens as the built-in did.
+    const b = join(dir, 'b');
+    await runCli([cfg, '-o', b, '--template', file, '--no-dashboard'], captureIO());
+    expect(readFileSync(join(b, 'tokens.json'), 'utf8')).toBe(
+      readFileSync(join(out, 'tokens.json'), 'utf8'),
+    );
+  });
+
+  it('never writes brand colours into the template', async () => {
+    const cfg = join(dir, 'brand.json');
+    writeFileSync(cfg, stringifyConfig(BRAND));
+    const out = join(dir, 'o');
+    await runCli([cfg, '-o', out, '--emit-template', 'house', '--no-dashboard'], captureIO());
+    const text = readFileSync(join(out, 'house.template.json'), 'utf8');
+    expect(text).not.toContain('3b82f6');
+    expect(text).not.toContain('Acme');
+  });
+
+  it('errors when the name is missing', () => {
+    expect(parseArgs(['p.json', '--emit-template']).errors).toHaveLength(1);
+  });
+
+  it('is off unless asked', async () => {
+    const cfg = join(dir, 'brand.json');
+    writeFileSync(cfg, stringifyConfig(BRAND));
+    const out = join(dir, 'o');
+    await runCli([cfg, '-o', out, '--no-dashboard'], captureIO());
+    expect(existsSync(join(out, 'house.template.json'))).toBe(false);
   });
 });

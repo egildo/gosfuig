@@ -5,7 +5,7 @@ Perceptual (OKLCH) design-system palette generator, with contrast validation and
 Describe a color family declaratively — or hand it a single brand color — and gosfuig resolves it into an even, gamut-safe ramp of named steps, checks the accessibility contract (WCAG 2.1 + APCA), and emits [DTCG](https://tr.designtokens.org/format/) design tokens.
 
 - **Perceptual by construction.** All math runs in OKLCH, where lightness, chroma, and hue are independent and perceptually even. Every color that leaves the engine is gamut-mapped into sRGB by reducing chroma, preserving L and H.
-- **One brand color → a full family.** `seedFamily` reads a family's hue (and, by default, its chroma level) _from_ a fixed color, builds the ramp around it, and pins the color at its step.
+- **Your brand colors → full families.** Declare the colors a branding book already gives you and the ramp is built as a path through them — routed in lightness, chroma _and_ hue, so a pinned color is a waypoint rather than a spike. Several per family is normal.
 - **Contrast is a first-class output.** Both WCAG 2.1 ratios and APCA Lc, plus a "contract": the darkest steps must be readable (WCAG AA) on the lightest.
 - **Tokens, not screenshots.** Export to the DTCG color format with an OKLCH definition and a hex fallback.
 
@@ -40,7 +40,7 @@ const tokens = toW3CTokens(palette); // DTCG { $type: 'color', ... }
 
 ### Families and curves
 
-A family is three curves over `t ∈ [0,1]` (t=0 lightest, t=1 darkest) — **lightness**, **chroma**, **hue** — plus optional **locks** (pinned colors).
+A family is three curves over `t ∈ [0,1]` (t=0 lightest, t=1 darkest) — **lightness**, **chroma**, **hue** — plus the [named colors](#named-colours-and-the-path-through-them) the ramp must pass through.
 
 ```ts
 resolveFamily({
@@ -49,7 +49,7 @@ resolveFamily({
   chroma: 0.14, // peak chroma with the default bump, or a CurveSpec
   lightness: { kind: 'ramp', max: 0.98, min: 0.18, sCurve: 0.13 }, // optional
   steps: 12, // default 12
-  locks: { '700': '#1d4ed8' }, // pin an exact color at a step
+  colors: [{ name: 'Corporate Blue', value: '#1d4ed8', step: '700' }], // see below
 });
 ```
 
@@ -74,7 +74,7 @@ Because a spec is data, a `.json` config and a `.js` config express exactly the 
 gosfuig: invalid palette spec (3 problems)
   families[0].lightness.kind: unknown curve kind "smoothstep" (expected one of constant, linear, gamma, hueRamp, ramp, bump)
   families[1].hue: expected a number or a curve spec, got "blue"
-  families[1].lightnes: unknown field (expected name, hue, chroma, lightness, steps, locks)
+  families[1].lightnes: unknown field (expected name, hue, chroma, lightness, steps, colors, locks, $extensions)
 ```
 
 Unknown fields are errors, not warnings, so a typo fails loudly instead of silently resolving to the default. `validatePaletteSpec` / `validateFamilySpec` return `{ ok, value }` or `{ ok, errors }` if you would rather not catch.
@@ -161,9 +161,33 @@ A template is the second pile. It is **not a second file format**: it resolves _
 ```sh
 gosfuig --templates                                    # list the built-ins
 gosfuig brand.json --template contrast                 # apply a house style
-gosfuig brand.json --template ./house.json             # or your own
+gosfuig brand.json --template ./house.template.json    # or your own
+gosfuig brand.json --emit-template house               # save this one as a file
 gosfuig brand.json --template contrast --emit-config   # freeze it in
 ```
+
+#### Saving and loading one
+
+A template is a small JSON file, and both front-ends read and write it:
+
+|            | load                              | save                                    |
+| ---------- | --------------------------------- | --------------------------------------- |
+| **CLI**    | `--template <name \| path.json>`  | `--emit-template <name>`                |
+| **studio** | house style ▾ → _load from file…_ | house style ▾ → _save current as file…_ |
+
+Saving reads the house style back out of a palette you already tuned, so you produce a template from real work rather than hand-writing one:
+
+```json
+{
+  "name": "house",
+  "description": "our style",
+  "steps": 12,
+  "lightness": { "kind": "ramp", "max": 0.985, "min": 0.15, "gamma": 1, "sCurve": 0.3 },
+  "export": { "prefix": "color" }
+}
+```
+
+Those five fields are the whole format — `name` is required, the rest optional, and anything else is rejected. **Brand facts are never written into a template**: no colors, no hues, no family names. That's the point of the split, and there's a test asserting it.
 
 | built-in   | what it is                                                           |
 | ---------- | -------------------------------------------------------------------- |
@@ -194,7 +218,7 @@ gosfuig: invalid palette spec (1 problem)
 
 A colour that leaves placement to the engine has no such problem, which is a good reason to omit `step` when you want a config that travels across house styles.
 
-The studio has a **house style** picker that applies a template as a visible edit, because a studio family always carries explicit curves and a silent base would change nothing at all.
+**The studio applies a template as a visible edit**, not as a silent base. A studio family always carries explicit curves, so `applyTemplate`'s fill-the-gaps behaviour would change nothing at all there; the picker writes the values into every family and says what it did.
 
 ### Seed-driven families
 
@@ -304,12 +328,16 @@ gosfuig palette.config.mjs -o tokens        # emit to ./tokens
 gosfuig palette.json --srgb --no-dashboard  # hex-only tokens, no dashboard
 gosfuig palette.json --strict               # exit 1 if any family fails the contract (CI)
 gosfuig palette.config.mjs --emit-config    # also freeze the spec to palette.config.json
+gosfuig --templates                         # list the built-in house styles
+gosfuig brand.json --template contrast      # apply one
+gosfuig brand.json --emit-template house    # save this palette's house style
 ```
 
 ## The config file
 
 One format, three producers and three consumers: the studio writes it, the CLI reads and writes it, and you can hand-author it. It is a `PaletteSpec` in JSON, plus two file-level fields:
 
+- `export` — how the token file is shaped on the way out. See [Shaping the emitted tree](#shaping-the-emitted-tree).
 - `$version` — the config format version. A config newer than your build is rejected rather than half-read.
 - `$extensions` — vendor data keyed by owner, which the engine carries and never reads. The studio stores its authoring state (which families are "from color", whether chroma is auto) under `"gosfuig.studio"`, so a session round-trips exactly while the CLI reads the same file and ignores what it doesn't own.
 
@@ -329,9 +357,11 @@ npm run dev          # dev server
 npm run studio:build # single-file HTML into dist-studio/
 ```
 
-Each family has a hue source — **from color** (a base-color picker drives the hue and, by default, the chroma; the color is pinned at a chosen step) or **free hue** (a hue slider). A per-family curves panel exposes lightness, chroma shape, and hue torsion; a palette-wide control sets the step count.
+Each family has a hue source — **from color** (a base-color picker drives the hue and, by default, the chroma) or **free hue** (a hue slider). A "from color" family also carries a **color name** and a **token alias**, so the brand fact and the token identifier are authored where you can see the ramp react. A per-family curves panel exposes lightness, chroma shape, and hue torsion; a palette-wide control sets the step count.
 
-The toolbar exports W3C tokens, and saves or loads a `palette.config.json` — the same file the CLI takes, so a session hands off to CI directly. The session is also kept in `localStorage`, so a reload doesn't discard an afternoon of slider work; **reset** clears it back to the demo palette.
+A sticky bar at the top holds everything you reach for repeatedly: the pass count, the **house style** picker, add family, save/load config, reset, and export tokens. It stays one row at every width and scrolls sideways rather than wrapping, because a sticky element that changes height makes the page jump.
+
+Config save/load uses the same `palette.config.json` the CLI takes, so a session hands off to CI directly. The session is also kept in `localStorage`, so a reload doesn't discard an afternoon of slider work; **reset** clears it back to the demo palette.
 
 ## Development
 
