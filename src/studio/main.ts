@@ -265,6 +265,42 @@ let cards: Card[] = [];
 function mount(): void {
   app.innerHTML = '';
 
+  // Sticky action bar. Everything here is something you reach for repeatedly
+  // while working, so it follows you down the page; the intro above it scrolls
+  // away. The config note lives inside the bar, next to the buttons that
+  // produce it, but bounded in height so a long validation error cannot grow
+  // the header without limit.
+  app.append(
+    el('div', { class: 'bar' }, [
+      el('div', { class: 'bar-row' }, [
+        summaryEl,
+        el('span', { class: 'gap' }),
+        templatePicker(),
+        el('button', { class: 'btn add', onclick: addFamily }, ['+ family']),
+        el(
+          'button',
+          {
+            class: 'btn',
+            title: 'download this session as palette.config.json',
+            onclick: saveConfig,
+          },
+          ['save ↓'],
+        ),
+        el(
+          'button',
+          { class: 'btn', title: 'load a palette.config.json', onclick: () => configInput.click() },
+          ['load ↑'],
+        ),
+        el('button', { class: 'btn', title: 'discard and start over', onclick: resetSession }, [
+          'reset',
+        ]),
+        el('button', { class: 'btn accent', onclick: showTokens }, ['export tokens']),
+        configInput,
+      ]),
+      configNote,
+    ]),
+  );
+
   // global STEPS card
   const stepsVal = el('span', { class: 'steps-val' }, [String(steps)]);
   const stepsInput = el('input', {
@@ -292,43 +328,13 @@ function mount(): void {
 
   app.append(
     el('div', { class: 'summary' }, [
-      summaryEl,
       el('span', { class: 'legend' }, [
-        'contract = darkest steps readable (WCAG AA ≥ 4.5) on the lightest — locks are never overridden to force a pass',
+        'contract = darkest steps readable (WCAG AA ≥ 4.5) on the lightest — locks are never overridden to force a pass. Click any swatch strip to open its contrast grid.',
       ]),
     ]),
   );
 
   app.append(famHost);
-
-  app.append(
-    el('div', { class: 'row' }, [
-      el('button', { class: 'btn add', onclick: addFamily }, ['+ add family']),
-      el('button', { class: 'btn accent', onclick: showTokens }, ['export W3C tokens']),
-      templatePicker(),
-      el('span', { class: 'gap' }),
-      el(
-        'button',
-        {
-          class: 'btn',
-          title: 'download this session as palette.config.json',
-          onclick: saveConfig,
-        },
-        ['save config ↓'],
-      ),
-      el(
-        'button',
-        { class: 'btn', title: 'load a palette.config.json', onclick: () => configInput.click() },
-        ['load config ↑'],
-      ),
-      el('button', { class: 'btn', title: 'discard and start over', onclick: resetSession }, [
-        'reset',
-      ]),
-      configInput,
-      el('span', { class: 'legend' }, ['click any swatch strip to toggle its contrast grid']),
-    ]),
-  );
-  app.append(configNote);
   app.append(outEl);
 
   remountFamilies();
@@ -432,7 +438,45 @@ function buildCard(fi: number): Card {
       el('option', { value: i, selected: i === Math.min(fam.seedStep, steps - 1) }, ['pin ' + n]),
     ),
   );
-  const seedCtrls = el('div', { class: 'seed-only src' }, [seedColor, seedStepSel]);
+  // The brand's own name for this color, and the token alias that points at it.
+  // Two fields rather than one because they are different kinds of string: the
+  // name is prose on a swatch, the alias is an identifier someone types.
+  const seedName = el('input', {
+    type: 'text',
+    class: 'color-name',
+    value: fam.seedName ?? '',
+    placeholder: 'color name',
+    title: 'the brand’s name for this color, e.g. "Corporate Blue"',
+    'aria-label': 'color name',
+    oninput: (e) => {
+      const v = (e.target as HTMLInputElement).value.trim();
+      if (v === '') delete fam.seedName;
+      else fam.seedName = v;
+      refreshSelf();
+    },
+  }) as HTMLInputElement;
+
+  const seedAlias = el('input', {
+    type: 'text',
+    class: 'color-alias',
+    value: fam.seedAlias ?? '',
+    placeholder: 'token alias',
+    title: 'a second way to point at this color in the token file, e.g. "brand blue"',
+    'aria-label': 'token alias',
+    oninput: (e) => {
+      const v = (e.target as HTMLInputElement).value.trim();
+      if (v === '') delete fam.seedAlias;
+      else fam.seedAlias = v;
+      refreshSelf();
+    },
+  }) as HTMLInputElement;
+
+  const seedCtrls = el('div', { class: 'seed-only src' }, [
+    seedColor,
+    seedStepSel,
+    seedName,
+    seedAlias,
+  ]);
 
   const hue = inlineSlider(
     'hue',

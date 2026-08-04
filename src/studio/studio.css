@@ -187,6 +187,52 @@ input[type='color']:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---- sticky action bar ---- */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  /* Bleed over the wrap's horizontal padding so nothing scrolls past the edges. */
+  margin: 0 -28px 20px;
+  padding: 10px 28px;
+  background: rgba(10, 10, 12, 0.86);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Deliberately does NOT wrap. A sticky element that changes height makes the
+     content below it jump; scrolling the bar sideways when it runs out of room
+     keeps it exactly one row tall at every width. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+}
+.bar-row > * {
+  flex: 0 0 auto;
+}
+.bar-row .gap {
+  flex: 1 1 12px;
+  min-width: 12px;
+}
+.bar-row .btn {
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+.bar-row select {
+  height: 34px;
+}
+.bar .config-note {
+  /* Bounded: a validation error can be many lines, and the bar must not grow
+     without limit while it is pinned to the top of the viewport. */
+  max-height: 4.5em;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
 /* ---- STEPS global card ---- */
 .globals {
   background: var(--panel);
@@ -343,6 +389,28 @@ input[type='color']:disabled {
   align-items: center;
   gap: 8px;
 }
+/* The brand's name for the colour, and the token alias pointing at it. */
+.src input[type='text'] {
+  background: var(--inset);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 8px;
+  height: 32px;
+  padding: 0 10px;
+  width: 140px;
+}
+.src input[type='text']::placeholder {
+  color: var(--dim);
+}
+.src input.color-alias {
+  font-family: var(--mono);
+  font-size: 12px;
+  width: 124px;
+}
+.src input[type='text']:focus {
+  outline: none;
+  border-color: var(--acc);
+}
 .chip {
   display: flex;
   align-items: center;
@@ -430,6 +498,10 @@ input[type='color']:disabled {
   gap: 3px;
   cursor: pointer;
   position: relative;
+  /* Grid items default to min-width:auto, so the hex label refuses to shrink and
+     the strip escapes its card at narrow widths. Let the label clip instead. */
+  min-width: 0;
+  overflow: hidden;
 }
 .sw:first-child {
   border-radius: 0 0 0 12px;
