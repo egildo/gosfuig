@@ -47,6 +47,12 @@
     "studio:build": "vite build"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://codeberg.org/Toghen/gosfuig.git"
+  },
+  "homepage": "https://codeberg.org/Toghen/gosfuig",
+  "bugs": "https://codeberg.org/Toghen/gosfuig/issues",
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/space-grotesk": "^5.2.10",
