@@ -1,6 +1,6 @@
 {
   "name": "gosfuig",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Perceptual (OKLCH) design-system palette generator with contrast validation and W3C token export",
   "type": "module",
   "main": "./dist/index.js",
